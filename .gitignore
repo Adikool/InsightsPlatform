@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# local state: catalog + warehouse + generated demo data
+.demo/
+.demo-pg/
+sample/
+*.duckdb
+*.duckdb.wal
+catalog.json
+
+.env
+.pytest_cache/
+.coverage

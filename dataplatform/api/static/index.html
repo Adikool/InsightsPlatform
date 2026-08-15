@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insight Platform</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>📊</text></svg>">
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="brand">
+      <h1>Insight Platform</h1>
+      <p>connectors · NL · superset · ML</p>
+    </div>
+
+    <button class="nav-item" data-view="ask" aria-current="true"><span class="glyph">?</span> Ask</button>
+    <button class="nav-item" data-view="data"><span class="glyph">▤</span> Data</button>
+    <button class="nav-item" data-view="sources"><span class="glyph">⇥</span> Sources</button>
+    <button class="nav-item" data-view="dashboard"><span class="glyph">▦</span> Dashboard</button>
+    <button class="nav-item" data-view="analyze"><span class="glyph">◈</span> Analyze</button>
+    <button class="nav-item" data-view="sql"><span class="glyph">&gt;_</span> SQL</button>
+
+    <div class="sidebar-foot">
+      <div class="env-row"><span>Model</span><span id="env-llm">—</span></div>
+      <div class="env-row"><span>Warehouse</span><span id="env-warehouse">—</span></div>
+      <div class="env-row"><span>Superset</span><span id="env-superset">—</span></div>
+      <div class="env-row"><span>UI build</span><span id="env-build">—</span></div>
+      <div class="env-row" style="margin-top:8px">
+        <button class="tiny ghost" id="theme-toggle" style="width:100%">Toggle theme</button>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- ------------------------------------------------------------- ASK -->
+    <section class="view" id="view-ask">
+      <div class="view-head">
+        <h2>Ask</h2>
+        <p>A question becomes a validated QuerySpec, then SQL this platform compiles itself.
+           The model never writes the SQL that runs.</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <label for="question">Question</label>
+            <input id="question" placeholder="monthly revenue by region" autocomplete="off">
+          </div>
+          <div style="flex:0 0 170px">
+            <label for="ask-dataset">Restrict to</label>
+            <select id="ask-dataset"><option value="">any dataset</option></select>
+          </div>
+          <button class="primary" id="ask-run">Ask</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="checkline"><input type="checkbox" id="ask-agent"> Agent mode (multi-step, needs a key)</label>
+          <label class="checkline"><input type="checkbox" id="ask-publish"> Publish to Superset</label>
+          <input id="ask-dashboard" placeholder="dashboard title" style="width:190px" hidden>
+        </div>
+        <div class="chips" style="margin-top:12px" id="ask-examples"></div>
+      </div>
+
+      <div id="ask-status"></div>
+      <div id="ask-result"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------ DATA -->
+    <section class="view" id="view-data" hidden>
+      <div class="view-head">
+        <h2>Data</h2>
+        <p>What has been ingested, and how the language layer sees it — semantic types
+           and sample values are what let a question resolve to the right column.</p>
+      </div>
+      <div class="row" style="margin-bottom:14px">
+        <div style="flex:0 0 300px">
+          <label for="data-dataset">Dataset</label>
+          <select id="data-dataset"></select>
+        </div>
+      </div>
+      <div id="data-detail"></div>
+    </section>
+
+    <!-- --------------------------------------------------------- SOURCES -->
+    <section class="view" id="view-sources" hidden>
+      <div class="view-head">
+        <h2>Sources</h2>
+        <p>SQL databases via SQLAlchemy, or Excel / CSV / Parquet from disk. Ingestion
+           copies into the warehouse and registers the schema in the catalog.</p>
+      </div>
+
+      <div class="card">
+        <h3>Register a source</h3>
+        <div class="row">
+          <div style="flex:0 0 160px">
+            <label for="src-name">Name</label>
+            <input id="src-name" placeholder="sales_db" autocomplete="off">
+          </div>
+          <div class="grow">
+            <label for="src-uri">URI or path</label>
+            <input id="src-uri" placeholder="sqlite:///sample/retail.db" autocomplete="off">
+          </div>
+          <div style="flex:0 0 120px">
+            <label for="src-type">Type</label>
+            <select id="src-type">
+              <option value="">auto</option>
+              <option value="sql">sql</option>
+              <option value="excel">excel</option>
+              <option value="csv">csv</option>
+              <option value="parquet">parquet</option>
+            </select>
+          </div>
+          <button class="primary" id="src-add">Add</button>
+        </div>
+      </div>
+
+      <div id="sources-status"></div>
+      <div id="sources-list"></div>
+    </section>
+
+    <!-- ------------------------------------------------------- DASHBOARD -->
+    <section class="view" id="view-dashboard" hidden>
+      <div class="view-head">
+        <h2>Dashboard</h2>
+        <p>Several questions at once, laid out as one report: KPI cards along the top,
+           graphs beneath, detail table at the bottom — published to Superset as a single dashboard.</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div style="flex:0 0 260px">
+            <label for="db-dataset">Dataset</label>
+            <select id="db-dataset"></select>
+          </div>
+          <div class="grow">
+            <label for="db-request">What should it show?
+              <span style="color:var(--faint)">— updates as you type. Understood: "3 kpi cards", "weekly", "by region", "no detail table"</span>
+            </label>
+            <input id="db-request" placeholder="3 kpi cards, weekly trend, by product category" autocomplete="off">
+          </div>
+          <div style="flex:0 0 180px">
+            <label for="db-title">Title</label>
+            <input id="db-title" placeholder="Sales Overview" autocomplete="off">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="db-preview">Preview plan</button>
+          <button class="primary" id="db-publish">Publish to Superset</button>
+        </div>
+      </div>
+
+      <div id="db-status"></div>
+      <div id="db-result"></div>
+    </section>
+
+    <!-- --------------------------------------------------------- ANALYZE -->
+    <section class="view" id="view-analyze" hidden>
+      <div class="view-head">
+        <h2>Analyze</h2>
+        <p>Profile the data, detect patterns statistically, then recommend prediction
+           algorithms <em>from that evidence</em>. Every recommendation shows its reasoning.</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div style="flex:0 0 280px">
+            <label for="an-dataset">Dataset</label>
+            <select id="an-dataset"></select>
+          </div>
+          <div style="flex:0 0 240px">
+            <label for="an-target">Target to predict</label>
+            <select id="an-target"><option value="">none — unsupervised</option></select>
+          </div>
+          <button class="primary" id="an-run">Analyze</button>
+          <button id="an-baseline" title="Fit the top recommendation and cross-validate it">Fit baseline</button>
+        </div>
+      </div>
+
+      <div id="an-status"></div>
+      <div id="an-result"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------- SQL -->
+    <section class="view" id="view-sql" hidden>
+      <div class="view-head">
+        <h2>SQL</h2>
+        <p>Read-only, single-statement, catalog tables only. Anything else is rejected
+           before it reaches the engine, and a LIMIT is injected if you omit one.</p>
+      </div>
+      <div class="card">
+        <label for="sql-text">Statement</label>
+        <textarea id="sql-text" spellcheck="false" rows="5" placeholder="SELECT ..."></textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="primary" id="sql-run">Run</button>
+          <span class="rec-meta" style="align-self:center">Ctrl+Enter to run</span>
+        </div>
+      </div>
+      <div id="sql-status"></div>
+      <div id="sql-result"></div>
+    </section>
+  </main>
+</div>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

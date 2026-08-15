@@ -1,0 +1,65 @@
+"""SQLAlchemy warehouse backend (Postgres, MySQL, SQL Server, ...)."""
+
+from __future__ import annotations
+
+import pandas as pd
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
+
+from ..errors import WarehouseError
+from . import Warehouse, WriteMode
+
+
+class SQLWarehouse(Warehouse):
+    def __init__(self, uri: str, schema: str | None = None) -> None:
+        self.uri = uri
+        self.schema = schema
+        try:
+            self._engine = create_engine(uri, pool_pre_ping=True)
+        except SQLAlchemyError as exc:
+            raise WarehouseError(f"cannot open warehouse {uri}: {exc}") from exc
+        self.dialect = self._engine.dialect.name
+
+    # Postgres (and most drivers) cap a single statement at 65535 bind parameters.
+    # `method="multi"` packs chunksize x n_columns parameters into one INSERT, so a
+    # fixed chunk size silently works on a narrow table and fails on a wide one.
+    MAX_BIND_PARAMS = 60_000  # headroom under the 65535 protocol limit
+
+    def _chunksize(self, n_columns: int) -> int:
+        return max(1, self.MAX_BIND_PARAMS // max(n_columns, 1))
+
+    def write(self, df: pd.DataFrame, table: str, mode: WriteMode = "replace") -> int:
+        try:
+            df.to_sql(
+                table,
+                self._engine,
+                schema=self.schema,
+                if_exists="replace" if mode == "replace" else "append",
+                index=False,
+                chunksize=self._chunksize(len(df.columns)),
+                method="multi",
+            )
+        except SQLAlchemyError as exc:
+            raise WarehouseError(f"write to {table} failed: {exc}") from exc
+        return self.count(table)
+
+    def query(self, sql: str) -> pd.DataFrame:
+        try:
+            with self._engine.connect() as conn:
+                return pd.read_sql(text(sql), conn)
+        except SQLAlchemyError as exc:
+            raise WarehouseError(f"query failed: {exc}\n---\n{sql}") from exc
+
+    def list_tables(self) -> list[str]:
+        try:
+            return sorted(inspect(self._engine).get_table_names(schema=self.schema))
+        except SQLAlchemyError as exc:
+            raise WarehouseError(f"cannot list tables: {exc}") from exc
+
+    def drop(self, table: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(text(f'DROP TABLE IF EXISTS "{table}"'))
+
+    @property
+    def sqlalchemy_uri(self) -> str:
+        return self.uri
