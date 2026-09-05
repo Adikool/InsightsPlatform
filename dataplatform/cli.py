@@ -156,14 +156,14 @@ def cmd_dashboard(args) -> int:
         return 1
     # Same routing the NL layer uses, so the CLI default and the UI agree: the
     # request picks the dataset when it can, richness breaks the tie when it can't.
-    dataset = args.dataset or pick_dataset(args.request or "", platform.catalog).name
+    datasets = args.dataset or [pick_dataset(args.request or "", platform.catalog).name]
 
     spec, compiled, published, problems = platform.build_dashboard(
-        dataset, request=args.request or "", title=args.title or "", publish=not args.dry_run
+        datasets, request=args.request or "", title=args.title or "", publish=not args.dry_run
     )
 
     print(_rule("plan"))
-    print(f"{spec.title} — {len(compiled)} tile(s) from {dataset}")
+    print(f"{spec.title} — {len(compiled)} tile(s) from {', '.join(datasets)}")
     if spec.interpretation:
         print(_wrap(spec.interpretation, indent=""))
     print(_rule("layout"))
@@ -373,7 +373,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     dashboard = sub.add_parser("dashboard", help="compose a multi-tile Superset dashboard")
     dashboard.add_argument("request", nargs="?", default="", help="what the dashboard should show")
-    dashboard.add_argument("--dataset", help="dataset to build from (default: the first one)")
+    dashboard.add_argument(
+        "--dataset", action="append",
+        help="dataset to build from; repeat for a multi-table dashboard (default: the best match)",
+    )
     dashboard.add_argument("--title", help="dashboard title")
     dashboard.add_argument("--dry-run", action="store_true", help="plan only, publish nothing")
     dashboard.add_argument("--show-sql", action="store_true", help="print each tile's SQL")

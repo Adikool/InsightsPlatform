@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..config import settings
 from ..errors import CatalogError
-from .models import CatalogState, DatasetMeta, SourceMeta
+from .models import CatalogState, DashboardHistoryEntry, DatasetMeta, SourceMeta
 
 
 class Catalog:
@@ -80,6 +80,14 @@ class Catalog:
 
     def has_dataset(self, name: str) -> bool:
         return any(key.lower() == name.lower() for key in self.state.datasets)
+
+    # ---------------------------------------------------------- dashboard history
+    def add_dashboard_history(self, entry: DashboardHistoryEntry) -> None:
+        self.state.dashboard_history.insert(0, entry)  # newest first
+        self.save()
+
+    def list_dashboard_history(self) -> list[DashboardHistoryEntry]:
+        return list(self.state.dashboard_history)
 
     # ---------------------------------------------------------- semantic aid
     def define_metric(self, name: str, expression: str) -> None:

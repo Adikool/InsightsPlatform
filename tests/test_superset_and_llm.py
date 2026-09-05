@@ -299,7 +299,7 @@ def test_dashboard_composer_falls_back_on_a_platform_error(tmp_path, monkeypatch
         lambda *a, **k: (_ for _ in ()).throw(PlatformError("simulated rate limit")),
     )
 
-    spec = composer_module.compose(catalog, "orders", request="3 kpi cards")
+    spec = composer_module.compose(catalog, ["orders"], request="3 kpi cards")
     assert spec.tiles  # fell all the way through to the deterministic composer
 
 

@@ -51,6 +51,9 @@ Rules:
 - Give each tile a short `title` — it becomes the chart name in Superset.
 - Set `role` on every tile. Leave `width` and `height` alone; layout is computed.
 - Do not aggregate an identifier column with sum.
+- If the catalog lists more than one table, tiles may pull from any of them —
+  one dashboard can mix tables. Prefix a tile's title with its table when that
+  is not otherwise obvious (e.g. "Orders — Total revenue").
 """
 
 
@@ -447,11 +450,11 @@ def _readback(dataset: DatasetMeta, tiles: list[Tile], asked: Request) -> str:
 
 
 def compose_with_llm(
-    request: str, catalog: Catalog, dataset: DatasetMeta | None, llm: LLMClient | None = None
+    request: str, catalog: Catalog, datasets: list[DatasetMeta], llm: LLMClient | None = None
 ) -> DashboardSpec:
     llm = llm or LLMClient()
     context = "CATALOG\n=======\n" + describe_catalog(
-        catalog, only=[dataset.name] if dataset else None
+        catalog, only=[d.name for d in datasets] or None
     )
     plan = llm.structured(
         instructions=INSTRUCTIONS,
@@ -463,6 +466,38 @@ def compose_with_llm(
         title=plan.title,
         description=plan.description,
         tiles=[_size(tile) for tile in plan.tiles][:MAX_TILES],
+    )
+
+
+def compose_multi(datasets: list[DatasetMeta], title: str = "", request: str = "") -> DashboardSpec:
+    """Merge each dataset's conventional shape into one dashboard.
+
+    Every tile already carries its own `spec.dataset`, and the Superset publisher
+    creates one virtual dataset per tile — so nothing downstream assumes a single
+    table. The only thing a second table needs here is a label on its tiles: two
+    unrelated "Total revenue" cards from different tables would otherwise be
+    indistinguishable on the page.
+    """
+    if len(datasets) == 1:
+        return compose_default(datasets[0], title=title, request=request)
+
+    per_dataset = [compose_default(dataset, request=request) for dataset in datasets]
+    for dataset, spec in zip(datasets, per_dataset):
+        label = dataset.name.replace("_", " ").title()
+        for tile in spec.tiles:
+            tile.spec.title = f"{label} — {tile.title}"
+
+    combined_title = title or " + ".join(
+        d.name.replace("_", " ").title() for d in datasets
+    ) + " overview"
+    return DashboardSpec(
+        title=combined_title,
+        description=" ".join(spec.description for spec in per_dataset),
+        tiles=[tile for spec in per_dataset for tile in spec.tiles],
+        interpretation=" ".join(
+            f"[{dataset.name}] {spec.interpretation}"
+            for dataset, spec in zip(datasets, per_dataset)
+        ),
     )
 
 
@@ -481,17 +516,17 @@ def _size(tile: Tile) -> Tile:
 
 def compose(
     catalog: Catalog,
-    dataset_name: str,
+    dataset_names: list[str],
     request: str = "",
     title: str = "",
     use_llm: bool | None = None,
 ) -> DashboardSpec:
-    dataset = catalog.get_dataset(dataset_name)
+    datasets = [catalog.get_dataset(name) for name in dataset_names]
     wants_llm = available() if use_llm is None else use_llm
 
     if wants_llm and request:
         try:
-            return compose_with_llm(request, catalog, dataset)
+            return compose_with_llm(request, catalog, datasets)
         except PlatformError:
             # Covers no-credentials, but also a refusal, a rate limit, an
             # overload, a dropped connection, or a malformed structured-output
@@ -500,7 +535,7 @@ def compose(
             # deterministic composer, the same as no key at all, not 500 the
             # /dashboard endpoint.
             pass
-    return compose_default(dataset, title=title, request=request)
+    return compose_multi(datasets, title=title, request=request)
 
 
 def validate(spec: DashboardSpec, compiler: SQLCompiler) -> tuple[list[Tile], list[str]]:

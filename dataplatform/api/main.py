@@ -117,12 +117,17 @@ class AskRequest(BaseModel):
     max_rows: int = 500
 
 
+class AskNlpRequest(BaseModel):
+    question: str
+    datasets: list[str] | None = None
+
+
 class SQLRequest(BaseModel):
     sql: str
 
 
 class DashboardRequest(BaseModel):
-    dataset: str
+    datasets: list[str]
     request: str = ""
     title: str = ""
     publish: bool = True
@@ -306,6 +311,27 @@ def ask(request: AskRequest) -> dict:
     }
 
 
+@app.post("/ask-nlp")
+def ask_nlp(request: AskNlpRequest) -> dict:
+    """Answer a natural language question about data with a descriptive response.
+
+    Uses the LLM to generate a natural language answer based on the specified datasets.
+    """
+    engine = platform()
+    try:
+        answer = engine.ask_nlp(
+            request.question,
+            datasets=request.datasets,
+        )
+    except PlatformError as exc:
+        raise _fail(exc) from exc
+
+    return {
+        "answer": answer.get("answer", ""),
+        "insights": answer.get("insights", []),
+    }
+
+
 @app.post("/spec")
 def run_spec(spec: QuerySpec) -> dict:
     try:
@@ -324,6 +350,11 @@ def run_sql(request: SQLRequest) -> dict:
     return {"row_count": len(frame), "columns": list(frame.columns), "rows": _records(frame)}
 
 
+@app.get("/dashboard-history")
+def get_dashboard_history() -> list[dict]:
+    return [e.model_dump() for e in platform().catalog.list_dashboard_history()]
+
+
 @app.post("/dashboard")
 def dashboard(request: DashboardRequest) -> dict:
     """Compose several tiles into one Superset dashboard.
@@ -331,11 +362,17 @@ def dashboard(request: DashboardRequest) -> dict:
     Distinct from /ask, which is one question -> one chart. Set publish=false to
     preview the plan and each tile's SQL without touching Superset.
     """
+    from datetime import datetime, timezone
+
+    from ..catalog.models import DashboardHistoryEntry
     from ..superset.layout import pack_rows
+
+    if not request.datasets:
+        raise _fail(PlatformError("select at least one dataset"))
 
     try:
         spec, compiled, published, problems = platform().build_dashboard(
-            request.dataset,
+            request.datasets,
             request=request.request,
             title=request.title,
             publish=request.publish,
@@ -343,12 +380,24 @@ def dashboard(request: DashboardRequest) -> dict:
     except PlatformError as exc:
         raise _fail(exc) from exc
 
+    if published:
+        platform().catalog.add_dashboard_history(
+            DashboardHistoryEntry(
+                title=spec.title,
+                dashboard_url=published.dashboard_url,
+                chart_url=None,
+                datasets=request.datasets,
+                n_charts=len(published.chart_ids),
+                created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            )
+        )
+
     tiles = [tile for tile, _ in compiled]
     return {
         "title": spec.title,
         "description": spec.description,
         "interpretation": spec.interpretation,
-        "dataset": request.dataset,
+        "datasets": request.datasets,
         "tiles": [
             {
                 "title": tile.title,

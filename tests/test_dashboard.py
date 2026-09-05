@@ -13,7 +13,7 @@ from dataplatform.catalog import Catalog
 from dataplatform.catalog.models import CatalogState, ColumnMeta, DatasetMeta
 from dataplatform.nlp.compiler import SQLCompiler
 from dataplatform.nlp.spec import Filter
-from dataplatform.reports import compose_default, validate
+from dataplatform.reports import compose, compose_default, compose_multi, validate
 from dataplatform.reports.spec import GRID_COLUMNS, Tile
 from dataplatform.superset.layout import build_position_json, pack_rows
 
@@ -117,6 +117,77 @@ def test_dataset_without_measures_is_refused(tmp_path):
     )
     with pytest.raises(QueryValidationError, match="measure"):
         compose_default(bare)
+
+
+# ---------------------------------------------------------- multi-table compose
+@pytest.fixture()
+def customers() -> DatasetMeta:
+    return DatasetMeta(
+        name="customers",
+        source="demo",
+        origin_object="customers",
+        n_rows=9_000,
+        columns=[
+            _column("customer_id", "int64", "identifier", 9_000),
+            _column("segment", "str", "categorical", 3, samples=["Consumer", "Corporate", "Home Office"]),
+            _column("lifetime_revenue", "float64", "currency"),
+        ],
+    )
+
+
+def test_compose_multi_with_one_dataset_matches_compose_default(orders):
+    """A single-table call should not behave differently through the multi path."""
+    single = compose_multi([orders])
+    direct = compose_default(orders)
+    assert [t.title for t in single.tiles] == [t.title for t in direct.tiles]
+    assert single.title == direct.title
+
+
+def test_compose_multi_merges_tiles_from_every_dataset(orders, customers):
+    spec = compose_multi([orders, customers])
+    dataset_names = {tile.spec.dataset for tile in spec.tiles}
+    assert dataset_names == {"orders", "customers"}
+
+
+def test_compose_multi_labels_tiles_by_table(orders, customers):
+    """Two tables can each produce a 'Total revenue' card — the title has to say which."""
+    spec = compose_multi([orders, customers])
+    titles = [tile.title for tile in spec.tiles]
+    assert any(t.startswith("Orders — ") for t in titles)
+    assert any(t.startswith("Customers — ") for t in titles)
+
+
+def test_compose_multi_default_title_names_both_tables(orders, customers):
+    spec = compose_multi([orders, customers])
+    assert "Orders" in spec.title
+    assert "Customers" in spec.title
+
+
+def test_compose_multi_respects_an_explicit_title(orders, customers):
+    spec = compose_multi([orders, customers], title="Sales Overview")
+    assert spec.title == "Sales Overview"
+
+
+def test_compose_multi_interpretation_covers_both_tables(orders, customers):
+    spec = compose_multi([orders, customers])
+    assert "[orders]" in spec.interpretation
+    assert "[customers]" in spec.interpretation
+
+
+def test_compose_multi_every_tile_still_compiles(tmp_path, orders, customers):
+    cat = Catalog(tmp_path / "catalog.json")
+    cat.state = CatalogState(datasets={"orders": orders, "customers": customers})
+    spec = compose_multi([orders, customers])
+    kept, problems = validate(spec, SQLCompiler(cat, dialect="postgresql"))
+    assert not problems
+    assert len(kept) == len(spec.tiles)
+
+
+def test_compose_dispatches_to_multi_for_several_datasets(tmp_path, orders, customers):
+    cat = Catalog(tmp_path / "catalog.json")
+    cat.state = CatalogState(datasets={"orders": orders, "customers": customers})
+    spec = compose(cat, ["orders", "customers"], use_llm=False)
+    assert {tile.spec.dataset for tile in spec.tiles} == {"orders", "customers"}
 
 
 # -------------------------------------------------------------------- layout

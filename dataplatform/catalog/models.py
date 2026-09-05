@@ -116,7 +116,17 @@ class SourceMeta(BaseModel):
     description: str = ""
 
 
+class DashboardHistoryEntry(BaseModel):
+    title: str
+    dashboard_url: str | None = None
+    chart_url: str | None = None
+    datasets: list[str] = Field(default_factory=list)
+    n_charts: int = 0
+    created_at: str = ""
+
+
 class CatalogState(BaseModel):
     sources: dict[str, SourceMeta] = Field(default_factory=dict)
     datasets: dict[str, DatasetMeta] = Field(default_factory=dict)
     metrics: dict[str, str] = Field(default_factory=dict)
+    dashboard_history: list[DashboardHistoryEntry] = Field(default_factory=list)

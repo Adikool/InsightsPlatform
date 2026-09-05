@@ -1,4 +1,4 @@
-from .composer import compose, compose_default, compose_with_llm, validate
+from .composer import compose, compose_default, compose_multi, compose_with_llm, validate
 from .spec import DashboardPlan, DashboardSpec, Tile, TileRole
 
 __all__ = [
@@ -8,6 +8,7 @@ __all__ = [
     "TileRole",
     "compose",
     "compose_default",
+    "compose_multi",
     "compose_with_llm",
     "validate",
 ]

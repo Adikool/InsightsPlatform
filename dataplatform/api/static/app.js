@@ -10,6 +10,7 @@ const state = {
   datasets: [],
   sources: [],
   lastAsk: null,
+  dbDatasets: [], // tables selected for the Dashboard view, in pick order
 };
 
 // ------------------------------------------------------------------ plumbing
@@ -84,7 +85,21 @@ async function boot() {
   const stored = localStorage.getItem("insight-theme");
   if (stored) document.documentElement.dataset.theme = stored;
 
+  // sidebar collapse
+  const app = document.querySelector(".app");
+  const sidebarToggle = $("sidebar-toggle");
+  if (localStorage.getItem("nav-collapsed") === "1") {
+    app.classList.add("nav-collapsed");
+    sidebarToggle.innerHTML = "&#8250;";
+  }
+  sidebarToggle.addEventListener("click", () => {
+    const collapsed = app.classList.toggle("nav-collapsed");
+    sidebarToggle.innerHTML = collapsed ? "&#8250;" : "&#8249;";
+    localStorage.setItem("nav-collapsed", collapsed ? "1" : "0");
+  });
+
   wireAsk();
+  wireAskNlp();
   wireSources();
   wireData();
   wireDashboard();
@@ -124,6 +139,7 @@ async function boot() {
   checkSuperset();
 }
 
+window.switchViewPublic = (name) => switchView(name);
 function switchView(name) {
   document.querySelectorAll(".view").forEach((view) => {
     view.hidden = view.id !== `view-${name}`;
@@ -132,6 +148,7 @@ function switchView(name) {
     button.setAttribute("aria-current", String(button.dataset.view === name));
   });
   location.hash = name;
+  if (name === "dashboard") loadDashboardHistory();
 }
 
 function toggleTheme() {
@@ -164,9 +181,14 @@ async function refreshDatasets() {
   const names = state.datasets.map((d) => d.name);
 
   fillSelect($("ask-dataset"), names, { placeholder: "any dataset" });
+  fillSelect($("ask-nlp-dataset"), names, { placeholder: "any dataset" });
   fillSelect($("data-dataset"), names);
   fillSelect($("an-dataset"), names);
-  fillSelect($("db-dataset"), names);
+
+  // A picked table that got dropped from the catalog (re-ingest, rename) can't
+  // stay selected silently — drop it here so the chip list matches reality.
+  state.dbDatasets = state.dbDatasets.filter((name) => names.includes(name));
+  renderDbDatasetChips();
 
   // Seed the SQL console with something that actually runs here, rather than a
   // sample naming a table this warehouse may not have.
@@ -197,6 +219,58 @@ function wireAsk() {
   $("ask-publish").addEventListener("change", (event) => {
     $("ask-dashboard").hidden = !event.target.checked;
   });
+}
+
+// ------------------------------------------------------------------- ASK NLP
+function wireAskNlp() {
+  $("ask-nlp-run").addEventListener("click", runAskNlp);
+  $("ask-nlp-question").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runAskNlp();
+  });
+}
+
+async function runAskNlp() {
+  const question = $("ask-nlp-question").value.trim();
+  if (!question) return;
+
+  const dataset = $("ask-nlp-dataset").value;
+
+  setStatus("ask-nlp-status", "busy", "Analyzing your data…");
+  $("ask-nlp-result").innerHTML = "";
+  $("ask-nlp-run").disabled = true;
+
+  try {
+    const result = await api("/ask-nlp", {
+      method: "POST",
+      body: {
+        question,
+        datasets: dataset ? [dataset] : null,
+      },
+    });
+    setStatus("ask-nlp-status", null);
+    renderAskNlpResult(result);
+  } catch (error) {
+    setStatus("ask-nlp-status", "error", error.message);
+  } finally {
+    $("ask-nlp-run").disabled = false;
+  }
+}
+
+function renderAskNlpResult(result) {
+  const container = $("ask-nlp-result");
+  container.innerHTML = "";
+
+  container.appendChild(
+    card("Answer", html(`<div style="white-space:pre-wrap;line-height:1.6">${escapeHtml(result.answer)}</div>`))
+  );
+
+  if (result.insights?.length) {
+    const body = document.createElement("div");
+    result.insights.forEach((insight) => {
+      body.appendChild(html(`<div class="rec-meta" style="margin-bottom:8px">• ${escapeHtml(insight)}</div>`));
+    });
+    container.appendChild(card("Key Insights", body));
+  }
 }
 
 function renderExamples() {
@@ -274,7 +348,8 @@ function renderAskResult(result) {
     container.appendChild(prompt);
     prompt.querySelector("#suggest-dashboard").addEventListener("click", () => {
       switchView("dashboard");
-      $("db-dataset").value = result.suggestion.dataset;
+      state.dbDatasets = [result.suggestion.dataset];
+      renderDbDatasetChips();
       $("db-request").value = result.suggestion.request;
       if (!$("db-title").value) $("db-title").value = titleCase(result.suggestion.dataset);
       runDashboard(false);
@@ -552,16 +627,53 @@ function wireDashboard() {
     timer = setTimeout(() => runDashboard(false, { live: true }), 250);
   };
   $("db-request").addEventListener("input", live);
-  $("db-dataset").addEventListener("change", live);
+
+  $("db-dataset-add").addEventListener("change", (event) => {
+    const name = event.target.value;
+    if (!name) return;
+    event.target.value = "";
+    if (!state.dbDatasets.includes(name)) {
+      state.dbDatasets.push(name);
+      renderDbDatasetChips();
+      live();
+    }
+  });
+
+  renderDbDatasetChips();
+}
+
+// The "add a table" dropdown only ever offers tables not already picked —
+// re-adding one is a removal, not a no-op, and a second entry would just
+// duplicate every tile it produces.
+function renderDbDatasetChips() {
+  const names = state.datasets.map((d) => d.name);
+  fillSelect($("db-dataset-add"), names.filter((n) => !state.dbDatasets.includes(n)), {
+    placeholder: "+ add a table…",
+  });
+
+  const chips = $("db-dataset-chips");
+  chips.innerHTML = "";
+  for (const name of state.dbDatasets) {
+    const chip = html(`
+      <span class="chip-selected">${escapeHtml(name)}<button type="button" aria-label="remove ${escapeHtml(name)}">×</button></span>
+    `);
+    chip.querySelector("button").addEventListener("click", () => {
+      state.dbDatasets = state.dbDatasets.filter((n) => n !== name);
+      renderDbDatasetChips();
+      runDashboard(false, { live: true });
+    });
+    chips.appendChild(chip);
+  }
 }
 
 // Monotonic guard: a slow early response must not overwrite a newer plan.
 let dashboardRequestId = 0;
 
 async function runDashboard(publish, { live = false } = {}) {
-  const dataset = $("db-dataset").value;
-  if (!dataset) {
-    if (!live) setStatus("db-status", "warn", "Ingest a dataset first.");
+  const datasets = state.dbDatasets;
+  if (!datasets.length) {
+    if (!live) setStatus("db-status", "warn", "Add at least one table first.");
+    $("db-result").innerHTML = "";
     return;
   }
 
@@ -572,7 +684,7 @@ async function runDashboard(publish, { live = false } = {}) {
   try {
     const plan = await api("/dashboard", {
       method: "POST",
-      body: { dataset, request: $("db-request").value, title: $("db-title").value, publish },
+      body: { datasets, request: $("db-request").value, title: $("db-title").value, publish },
     });
     if (ticket !== dashboardRequestId) return; // superseded while in flight
     setStatus("db-status", null);
@@ -661,6 +773,50 @@ function renderDashboardPlan(plan, { live = false } = {}) {
           </div>`)
       )
     );
+    // Refresh history so the new entry appears immediately.
+    loadDashboardHistory();
+  }
+}
+
+// --------------------------------------------------------- DASHBOARD HISTORY
+async function loadDashboardHistory() {
+  const container = $("db-history");
+  try {
+    const entries = await api("/dashboard-history", { method: "GET" });
+    renderDashboardHistory(entries, container);
+  } catch (_) {
+    // silently skip — history is non-critical
+  }
+}
+
+function renderDashboardHistory(entries, container) {
+  if (!entries || !entries.length) {
+    container.innerHTML = `<span style="color:var(--faint);font-size:13px">No dashboards published yet.</span>`;
+    return;
+  }
+  container.innerHTML = "";
+  for (const entry of entries) {
+    const date = entry.created_at
+      ? new Date(entry.created_at).toLocaleString(undefined, {
+          dateStyle: "medium", timeStyle: "short",
+        })
+      : "";
+    const datasets = (entry.datasets || []).join(", ");
+    const link = entry.dashboard_url
+      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener"
+            style="font-weight:600;font-size:14px">${escapeHtml(entry.title)}</a>`
+      : `<span style="font-weight:600;font-size:14px">${escapeHtml(entry.title)}</span>`;
+    const row = html(`
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;
+                  gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          ${link}
+          ${datasets ? `<div class="rec-meta" style="margin-top:3px">${escapeHtml(datasets)}</div>` : ""}
+          ${entry.n_charts ? `<div class="rec-meta">${entry.n_charts} chart${entry.n_charts !== 1 ? "s" : ""}</div>` : ""}
+        </div>
+        <div style="flex-shrink:0;color:var(--faint);font-size:12px;padding-top:2px">${escapeHtml(date)}</div>
+      </div>`);
+    container.appendChild(row);
   }
 }
 
@@ -890,5 +1046,5 @@ async function runSql() {
 }
 
 // ------------------------------------------------------------------- start
-if (location.hash) switchView(location.hash.slice(1));
+switchView(location.hash ? location.hash.slice(1) : "home");
 boot();

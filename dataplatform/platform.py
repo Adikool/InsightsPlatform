@@ -198,20 +198,71 @@ class Platform:
 
         return AnalystAgent(self.catalog, self.warehouse).ask(question)
 
+    def ask_nlp(self, question: str, datasets: list[str] | None = None) -> dict:
+        """Answer a natural language question with an NLP-generated response.
+
+        Uses the LLM to generate a descriptive answer based on data summaries and context.
+        """
+        from .nlp.llm import LLMClient
+
+        # Get dataset metadata
+        all_datasets = self.catalog.list_datasets()
+        if datasets:
+            selected = [d for d in all_datasets if d.name in datasets]
+        else:
+            selected = all_datasets
+
+        if not selected:
+            raise PlatformError("No datasets available to analyze")
+
+        # Build data context
+        context_lines = []
+        for dataset in selected:
+            context_lines.append(f"Dataset: {dataset.name}")
+            context_lines.append(f"  Rows: {dataset.n_rows:,}")
+            cols = ", ".join(c.name for c in dataset.columns[:10])
+            context_lines.append(f"  Columns: {cols}")
+            if len(dataset.columns) > 10:
+                context_lines.append(f"  ... and {len(dataset.columns) - 10} more columns")
+
+        data_context = "\n".join(context_lines)
+
+        # Generate answer using LLM
+        llm = LLMClient()
+        instructions = "You are a helpful data analyst. Provide clear, insightful answers about data."
+        prompt = f"""Based on the following data context, answer this question in 2-3 sentences:
+
+Data Context:
+{data_context}
+
+Question: {question}"""
+
+        response = llm.text(instructions=instructions, prompt=prompt, max_tokens=1024)
+
+        # Split response into answer and insights
+        paragraphs = [p.strip() for p in response.split("\n\n") if p.strip()]
+        answer = paragraphs[0] if paragraphs else response
+        insights = [p for p in paragraphs[1:] if len(p) < 200]
+
+        return {
+            "answer": answer,
+            "insights": insights,
+        }
+
     # -------------------------------------------------------------- dashboard
     def compose_dashboard(
         self,
-        dataset: str,
+        datasets: list[str],
         request: str = "",
         title: str = "",
         use_llm: bool | None = None,
     ) -> tuple[DashboardSpec, list, list[str]]:
-        """Plan a multi-tile dashboard and compile every tile.
+        """Plan a multi-tile dashboard — from one table or several — and compile every tile.
 
         Returns the spec, the surviving (tile, compiled) pairs, and any problems —
         so callers can show a partial dashboard rather than failing whole.
         """
-        spec = compose(self.catalog, dataset, request=request, title=title, use_llm=use_llm)
+        spec = compose(self.catalog, datasets, request=request, title=title, use_llm=use_llm)
         kept, problems = validate(spec, self.nl2sql.compiler)
         spec.tiles = kept
         compiled = [(tile, self.nl2sql.compile_spec(tile.spec)) for tile in spec.ordered]
@@ -219,17 +270,18 @@ class Platform:
 
     def build_dashboard(
         self,
-        dataset: str,
+        datasets: list[str],
         request: str = "",
         title: str = "",
         publish: bool = True,
         use_llm: bool | None = None,
     ) -> tuple[DashboardSpec, list, DashboardResult | None, list[str]]:
         spec, compiled, problems = self.compose_dashboard(
-            dataset, request=request, title=title, use_llm=use_llm
+            datasets, request=request, title=title, use_llm=use_llm
         )
         if not compiled:
-            raise PlatformError(f"no usable tiles for {dataset}: {'; '.join(problems) or 'unknown'}")
+            names = ", ".join(datasets)
+            raise PlatformError(f"no usable tiles for {names}: {'; '.join(problems) or 'unknown'}")
 
         result = None
         if publish:
