@@ -8,7 +8,15 @@ from pathlib import Path
 
 from ..config import settings
 from ..errors import CatalogError
-from .models import CatalogState, DashboardActivityEntry, DashboardHistoryEntry, DatasetMeta, SourceMeta
+from .models import (
+    AskActivityEntry,
+    CatalogState,
+    DashboardActivityEntry,
+    DashboardHistoryEntry,
+    DatasetMeta,
+    ExploreActivityEntry,
+    SourceMeta,
+)
 
 # Activity is a running log rather than a fixed record set; cap it so the
 # catalog file doesn't grow without bound over months of use.
@@ -93,17 +101,44 @@ class Catalog:
     def list_dashboard_history(self) -> list[DashboardHistoryEntry]:
         return list(self.state.dashboard_history)
 
-    def add_dashboard_activity(self, entry: DashboardActivityEntry) -> None:
-        self.state.dashboard_activity.insert(0, entry)  # newest first
-        del self.state.dashboard_activity[_MAX_ACTIVITY_ENTRIES:]
+    # Every activity log (dashboard, explore, ask) shares the same
+    # insert-newest-first / cap / clear shape, so it lives in one place.
+    def _add_activity(self, attr: str, entry) -> None:
+        log = getattr(self.state, attr)
+        log.insert(0, entry)
+        del log[_MAX_ACTIVITY_ENTRIES:]
         self.save()
+
+    def _clear_activity(self, attr: str) -> None:
+        setattr(self.state, attr, [])
+        self.save()
+
+    def add_dashboard_activity(self, entry: DashboardActivityEntry) -> None:
+        self._add_activity("dashboard_activity", entry)
 
     def list_dashboard_activity(self) -> list[DashboardActivityEntry]:
         return list(self.state.dashboard_activity)
 
     def clear_dashboard_activity(self) -> None:
-        self.state.dashboard_activity = []
-        self.save()
+        self._clear_activity("dashboard_activity")
+
+    def add_explore_activity(self, entry: ExploreActivityEntry) -> None:
+        self._add_activity("explore_activity", entry)
+
+    def list_explore_activity(self) -> list[ExploreActivityEntry]:
+        return list(self.state.explore_activity)
+
+    def clear_explore_activity(self) -> None:
+        self._clear_activity("explore_activity")
+
+    def add_ask_activity(self, entry: AskActivityEntry) -> None:
+        self._add_activity("ask_activity", entry)
+
+    def list_ask_activity(self) -> list[AskActivityEntry]:
+        return list(self.state.ask_activity)
+
+    def clear_ask_activity(self) -> None:
+        self._clear_activity("ask_activity")
 
     # ---------------------------------------------------------- semantic aid
     def define_metric(self, name: str, expression: str) -> None:

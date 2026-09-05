@@ -149,6 +149,8 @@ function switchView(name) {
   });
   location.hash = name;
   if (name === "dashboard") loadDashboardActivity();
+  if (name === "ask") loadExploreActivity();
+  if (name === "ask-nlp") loadAskActivity();
 }
 
 function toggleTheme() {
@@ -219,6 +221,7 @@ function wireAsk() {
   $("ask-publish").addEventListener("change", (event) => {
     $("ask-dashboard").hidden = !event.target.checked;
   });
+  $("ask-activity-clear").addEventListener("click", clearExploreActivity);
 }
 
 // ------------------------------------------------------------------- ASK NLP
@@ -227,6 +230,7 @@ function wireAskNlp() {
   $("ask-nlp-question").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runAskNlp();
   });
+  $("ask-nlp-activity-clear").addEventListener("click", clearAskActivity);
 }
 
 async function runAskNlp() {
@@ -249,6 +253,7 @@ async function runAskNlp() {
     });
     setStatus("ask-nlp-status", null);
     renderAskNlpResult(result);
+    loadAskActivity();
   } catch (error) {
     setStatus("ask-nlp-status", "error", error.message);
   } finally {
@@ -323,6 +328,7 @@ async function runAsk() {
     setStatus("ask-status", null);
     if (result.mode === "agent") renderAgentResult(result);
     else renderAskResult(result);
+    loadExploreActivity();
   } catch (error) {
     setStatus("ask-status", "error", error.message);
   } finally {
@@ -825,25 +831,114 @@ function renderDashboardActivity(entries, container) {
   }
   container.innerHTML = "";
   for (const entry of entries) {
-    const date = entry.created_at
-      ? new Date(entry.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-      : "";
+    const date = fmtActivityDate(entry.created_at);
     const datasets = (entry.datasets || []).join(", ");
     const isPublish = entry.action === "publish";
     const titleNode = isPublish && entry.dashboard_url
-      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="db-activity-title">${escapeHtml(entry.title)}</a>`
-      : `<span class="db-activity-title">${escapeHtml(entry.title)}</span>`;
+      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="activity-title">${escapeHtml(entry.title)}</a>`
+      : `<span class="activity-title">${escapeHtml(entry.title)}</span>`;
     const row = html(`
-      <div class="db-activity-item">
-        <div class="db-activity-top">
-          <span class="db-activity-badge ${isPublish ? "publish" : "preview"}">${isPublish ? "Published" : "Preview"}</span>
+      <div class="activity-item">
+        <div class="activity-top">
+          <span class="activity-badge ${isPublish ? "publish" : "preview"}">${isPublish ? "Published" : "Preview"}</span>
           ${titleNode}
         </div>
-        ${entry.request ? `<div class="db-activity-request">“${escapeHtml(entry.request)}”</div>` : ""}
-        <div class="db-activity-meta">
+        ${entry.request ? `<div class="activity-request">“${escapeHtml(entry.request)}”</div>` : ""}
+        <div class="activity-meta">
           ${datasets ? escapeHtml(datasets) : ""}${datasets && entry.n_charts ? " · " : ""}${entry.n_charts ? `${entry.n_charts} chart${entry.n_charts !== 1 ? "s" : ""}` : ""}
         </div>
-        <div class="db-activity-meta">${escapeHtml(date)}</div>
+        <div class="activity-meta">${escapeHtml(date)}</div>
+      </div>`);
+    container.appendChild(row);
+  }
+}
+
+function fmtActivityDate(createdAt) {
+  return createdAt
+    ? new Date(createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    : "";
+}
+
+// ----------------------------------------------------------- EXPLORE ACTIVITY
+async function clearExploreActivity() {
+  if (!confirm("Clear all Explore activity? This cannot be undone.")) return;
+  try {
+    await api("/explore-activity", { method: "DELETE" });
+    await loadExploreActivity();
+  } catch (error) {
+    setStatus("ask-status", "error", error.message);
+  }
+}
+
+async function loadExploreActivity() {
+  const container = $("ask-activity");
+  try {
+    const entries = await api("/explore-activity", { method: "GET" });
+    renderExploreActivity(entries, container);
+  } catch (_) {
+    // silently skip — activity is non-critical
+  }
+}
+
+function renderExploreActivity(entries, container) {
+  if (!entries || !entries.length) {
+    container.innerHTML = `<span style="color:var(--faint);font-size:13px">No activity yet.</span>`;
+    return;
+  }
+  container.innerHTML = "";
+  for (const entry of entries) {
+    const date = fmtActivityDate(entry.created_at);
+    const publishedNote = entry.published && entry.dashboard_url
+      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="activity-badge publish" style="text-decoration:none">Published</a>`
+      : "";
+    const row = html(`
+      <div class="activity-item">
+        <div class="activity-top">
+          <span class="activity-badge ${entry.mode}">${escapeHtml(entry.mode)}</span>
+          ${publishedNote}
+        </div>
+        <div class="activity-request">“${escapeHtml(entry.question)}”</div>
+        <div class="activity-meta">${entry.row_count != null ? `${entry.row_count} rows` : ""}</div>
+        <div class="activity-meta">${escapeHtml(date)}</div>
+      </div>`);
+    container.appendChild(row);
+  }
+}
+
+// --------------------------------------------------------------- ASK ACTIVITY
+async function clearAskActivity() {
+  if (!confirm("Clear all Ask activity? This cannot be undone.")) return;
+  try {
+    await api("/ask-activity", { method: "DELETE" });
+    await loadAskActivity();
+  } catch (error) {
+    setStatus("ask-nlp-status", "error", error.message);
+  }
+}
+
+async function loadAskActivity() {
+  const container = $("ask-nlp-activity");
+  try {
+    const entries = await api("/ask-activity", { method: "GET" });
+    renderAskActivity(entries, container);
+  } catch (_) {
+    // silently skip — activity is non-critical
+  }
+}
+
+function renderAskActivity(entries, container) {
+  if (!entries || !entries.length) {
+    container.innerHTML = `<span style="color:var(--faint);font-size:13px">No activity yet.</span>`;
+    return;
+  }
+  container.innerHTML = "";
+  for (const entry of entries) {
+    const date = fmtActivityDate(entry.created_at);
+    const row = html(`
+      <div class="activity-item">
+        <div class="activity-request">“${escapeHtml(entry.question)}”</div>
+        <div class="activity-meta">${escapeHtml(entry.dataset || "any dataset")}</div>
+        <div class="activity-meta">${escapeHtml(date)}</div>
       </div>`);
     container.appendChild(row);
   }

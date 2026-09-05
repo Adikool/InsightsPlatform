@@ -47,24 +47,37 @@
            The model understands your data and provides insights without requiring SQL knowledge.</p>
       </div>
 
-      <div class="card">
-        <div class="row">
-          <div class="grow">
-            <label for="ask-nlp-question">Question</label>
-            <input id="ask-nlp-question" placeholder="What is the average sales by region?" autocomplete="off">
-          </div>
-          <div style="display:flex;align-items:flex-end;gap:8px;flex-shrink:0">
-            <div style="flex:0 1 150px;min-width:100px">
-              <label for="ask-nlp-dataset">Restrict to</label>
-              <select id="ask-nlp-dataset"><option value="">any dataset</option></select>
+      <div class="view-layout">
+        <div class="view-main">
+          <div class="card">
+            <div class="row">
+              <div class="grow">
+                <label for="ask-nlp-question">Question</label>
+                <input id="ask-nlp-question" placeholder="What is the average sales by region?" autocomplete="off">
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:8px;flex-shrink:0">
+                <div style="flex:0 1 150px;min-width:100px">
+                  <label for="ask-nlp-dataset">Restrict to</label>
+                  <select id="ask-nlp-dataset"><option value="">any dataset</option></select>
+                </div>
+                <button class="primary" id="ask-nlp-run">Ask</button>
+              </div>
             </div>
-            <button class="primary" id="ask-nlp-run">Ask</button>
           </div>
-        </div>
-      </div>
 
-      <div id="ask-nlp-status"></div>
-      <div id="ask-nlp-result"></div>
+          <div id="ask-nlp-status"></div>
+          <div id="ask-nlp-result"></div>
+        </div>
+
+        <aside class="activity-panel">
+          <div class="activity-head">
+            <h3>Activity</h3>
+            <button class="tiny ghost" id="ask-nlp-activity-clear">Clear</button>
+          </div>
+          <p class="activity-sub">Every question you've asked here.</p>
+          <div id="ask-nlp-activity"><span style="color:var(--faint);font-size:13px">No activity yet.</span></div>
+        </aside>
+      </div>
     </section>
 
     <!-- --------------------------------------------------------- EXPLORE -->
@@ -75,30 +88,43 @@
            The model never writes the SQL that runs.</p>
       </div>
 
-      <div class="card">
-        <div class="row">
-          <div class="grow">
-            <label for="question">Question</label>
-            <input id="question" placeholder="monthly revenue by region" autocomplete="off">
-          </div>
-          <div style="display:flex;align-items:flex-end;gap:8px;flex-shrink:0">
-            <div style="flex:0 1 150px;min-width:100px">
-              <label for="ask-dataset">Restrict to</label>
-              <select id="ask-dataset"><option value="">any dataset</option></select>
+      <div class="view-layout">
+        <div class="view-main">
+          <div class="card">
+            <div class="row">
+              <div class="grow">
+                <label for="question">Question</label>
+                <input id="question" placeholder="monthly revenue by region" autocomplete="off">
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:8px;flex-shrink:0">
+                <div style="flex:0 1 150px;min-width:100px">
+                  <label for="ask-dataset">Restrict to</label>
+                  <select id="ask-dataset"><option value="">any dataset</option></select>
+                </div>
+                <button class="primary" id="ask-run">Explore</button>
+              </div>
             </div>
-            <button class="primary" id="ask-run">Explore</button>
+            <div class="row" style="margin-top:10px">
+              <label class="checkline"><input type="checkbox" id="ask-agent"> Agent mode (multi-step, needs a key)</label>
+              <label class="checkline"><input type="checkbox" id="ask-publish"> Publish to Superset</label>
+              <input id="ask-dashboard" placeholder="dashboard title" style="width:190px" hidden>
+            </div>
+            <div class="chips" style="margin-top:12px" id="ask-examples"></div>
           </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <label class="checkline"><input type="checkbox" id="ask-agent"> Agent mode (multi-step, needs a key)</label>
-          <label class="checkline"><input type="checkbox" id="ask-publish"> Publish to Superset</label>
-          <input id="ask-dashboard" placeholder="dashboard title" style="width:190px" hidden>
-        </div>
-        <div class="chips" style="margin-top:12px" id="ask-examples"></div>
-      </div>
 
-      <div id="ask-status"></div>
-      <div id="ask-result"></div>
+          <div id="ask-status"></div>
+          <div id="ask-result"></div>
+        </div>
+
+        <aside class="activity-panel">
+          <div class="activity-head">
+            <h3>Activity</h3>
+            <button class="tiny ghost" id="ask-activity-clear">Clear</button>
+          </div>
+          <p class="activity-sub">Every question you've explored here.</p>
+          <div id="ask-activity"><span style="color:var(--faint);font-size:13px">No activity yet.</span></div>
+        </aside>
+      </div>
     </section>
 
     <!-- ------------------------------------------------------------ DATA -->
@@ -365,8 +391,8 @@
            graphs beneath, detail table at the bottom — published to Superset as a single dashboard.</p>
       </div>
 
-      <div class="db-layout">
-        <div class="db-main">
+      <div class="view-layout">
+        <div class="view-main">
           <div class="card">
             <div class="row">
               <div style="flex:0 1 240px;min-width:160px">
@@ -397,12 +423,12 @@
           <div id="db-result"></div>
         </div>
 
-        <aside class="db-activity-panel">
-          <div class="db-activity-head">
+        <aside class="activity-panel">
+          <div class="activity-head">
             <h3>Activity</h3>
             <button class="tiny ghost" id="db-activity-clear">Clear</button>
           </div>
-          <p class="db-activity-sub">Every prompt you've sent and every dashboard you've published.</p>
+          <p class="activity-sub">Every prompt you've sent and every dashboard you've published.</p>
           <div id="db-activity"><span style="color:var(--faint);font-size:13px">No activity yet.</span></div>
         </aside>
       </div>

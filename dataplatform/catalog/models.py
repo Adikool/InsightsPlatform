@@ -143,9 +143,31 @@ class DashboardActivityEntry(BaseModel):
     created_at: str = ""
 
 
+class ExploreActivityEntry(BaseModel):
+    """One question submitted from the Explore tab (`/ask`)."""
+
+    question: str
+    mode: Literal["spec", "agent"] = "spec"
+    sql: str | None = None
+    row_count: int | None = None
+    published: bool = False
+    dashboard_url: str | None = None
+    created_at: str = ""
+
+
+class AskActivityEntry(BaseModel):
+    """One question submitted from the Ask tab (`/ask-nlp`)."""
+
+    question: str
+    dataset: str | None = None
+    created_at: str = ""
+
+
 class CatalogState(BaseModel):
     sources: dict[str, SourceMeta] = Field(default_factory=dict)
     datasets: dict[str, DatasetMeta] = Field(default_factory=dict)
     metrics: dict[str, str] = Field(default_factory=dict)
     dashboard_history: list[DashboardHistoryEntry] = Field(default_factory=list)
     dashboard_activity: list[DashboardActivityEntry] = Field(default_factory=list)
+    explore_activity: list[ExploreActivityEntry] = Field(default_factory=list)
+    ask_activity: list[AskActivityEntry] = Field(default_factory=list)

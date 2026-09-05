@@ -277,13 +277,36 @@ def remove_source(name: str) -> dict:
     return {"removed": name}
 
 
+@app.get("/explore-activity")
+def get_explore_activity() -> list[dict]:
+    return [e.model_dump() for e in platform().catalog.list_explore_activity()]
+
+
+@app.delete("/explore-activity")
+def clear_explore_activity() -> dict:
+    platform().catalog.clear_explore_activity()
+    return {"cleared": True}
+
+
 @app.post("/ask")
 def ask(request: AskRequest) -> dict:
+    from datetime import datetime, timezone
+
+    from ..catalog.models import ExploreActivityEntry
+
     engine = platform()
     try:
         if request.agent:
             agent_result = engine.agent_ask(request.question)
             last = agent_result.last_query
+            platform().catalog.add_explore_activity(
+                ExploreActivityEntry(
+                    question=request.question,
+                    mode="agent",
+                    sql=agent_result.queries[-1].sql if agent_result.queries else None,
+                    created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                )
+            )
             return {
                 "mode": "agent",
                 "answer": agent_result.answer,
@@ -300,6 +323,18 @@ def ask(request: AskRequest) -> dict:
     except PlatformError as exc:
         raise _fail(exc) from exc
 
+    platform().catalog.add_explore_activity(
+        ExploreActivityEntry(
+            question=request.question,
+            mode="spec",
+            sql=result.sql,
+            row_count=len(result.data),
+            published=bool(result.published),
+            dashboard_url=result.published.dashboard_url if result.published else None,
+            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    )
+
     return {
         "mode": "spec",
         "question": result.question,
@@ -314,12 +349,27 @@ def ask(request: AskRequest) -> dict:
     }
 
 
+@app.get("/ask-activity")
+def get_ask_activity() -> list[dict]:
+    return [e.model_dump() for e in platform().catalog.list_ask_activity()]
+
+
+@app.delete("/ask-activity")
+def clear_ask_activity() -> dict:
+    platform().catalog.clear_ask_activity()
+    return {"cleared": True}
+
+
 @app.post("/ask-nlp")
 def ask_nlp(request: AskNlpRequest) -> dict:
     """Answer a natural language question about data with a descriptive response.
 
     Uses the LLM to generate a natural language answer based on the specified datasets.
     """
+    from datetime import datetime, timezone
+
+    from ..catalog.models import AskActivityEntry
+
     engine = platform()
     try:
         answer = engine.ask_nlp(
@@ -328,6 +378,14 @@ def ask_nlp(request: AskNlpRequest) -> dict:
         )
     except PlatformError as exc:
         raise _fail(exc) from exc
+
+    platform().catalog.add_ask_activity(
+        AskActivityEntry(
+            question=request.question,
+            dataset=request.datasets[0] if request.datasets else None,
+            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    )
 
     return {
         "answer": answer.get("answer", ""),
