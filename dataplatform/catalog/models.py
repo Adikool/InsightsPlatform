@@ -125,8 +125,27 @@ class DashboardHistoryEntry(BaseModel):
     created_at: str = ""
 
 
+class DashboardActivityEntry(BaseModel):
+    """One explicit dashboard action — a "Preview plan" or "Publish" click.
+
+    Distinct from `DashboardHistoryEntry`: this logs every explicit action, not
+    just successful publishes, so the user has a full record of what they asked
+    for, not only what made it to Superset. Live-typing recomposition is not
+    logged here — only the button clicks are.
+    """
+
+    action: Literal["preview", "publish"]
+    title: str
+    request: str = ""
+    datasets: list[str] = Field(default_factory=list)
+    dashboard_url: str | None = None
+    n_charts: int = 0
+    created_at: str = ""
+
+
 class CatalogState(BaseModel):
     sources: dict[str, SourceMeta] = Field(default_factory=dict)
     datasets: dict[str, DatasetMeta] = Field(default_factory=dict)
     metrics: dict[str, str] = Field(default_factory=dict)
     dashboard_history: list[DashboardHistoryEntry] = Field(default_factory=list)
+    dashboard_activity: list[DashboardActivityEntry] = Field(default_factory=list)

@@ -8,7 +8,11 @@ from pathlib import Path
 
 from ..config import settings
 from ..errors import CatalogError
-from .models import CatalogState, DashboardHistoryEntry, DatasetMeta, SourceMeta
+from .models import CatalogState, DashboardActivityEntry, DashboardHistoryEntry, DatasetMeta, SourceMeta
+
+# Activity is a running log rather than a fixed record set; cap it so the
+# catalog file doesn't grow without bound over months of use.
+_MAX_ACTIVITY_ENTRIES = 200
 
 
 class Catalog:
@@ -88,6 +92,14 @@ class Catalog:
 
     def list_dashboard_history(self) -> list[DashboardHistoryEntry]:
         return list(self.state.dashboard_history)
+
+    def add_dashboard_activity(self, entry: DashboardActivityEntry) -> None:
+        self.state.dashboard_activity.insert(0, entry)  # newest first
+        del self.state.dashboard_activity[_MAX_ACTIVITY_ENTRIES:]
+        self.save()
+
+    def list_dashboard_activity(self) -> list[DashboardActivityEntry]:
+        return list(self.state.dashboard_activity)
 
     # ---------------------------------------------------------- semantic aid
     def define_metric(self, name: str, expression: str) -> None:

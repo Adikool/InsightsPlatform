@@ -131,6 +131,9 @@ class DashboardRequest(BaseModel):
     request: str = ""
     title: str = ""
     publish: bool = True
+    # True for the debounced recompose-as-you-type calls; those aren't logged
+    # to the activity feed, only explicit "Preview plan" / "Publish" clicks are.
+    live: bool = False
 
 
 class AnalyzeRequest(BaseModel):
@@ -355,6 +358,11 @@ def get_dashboard_history() -> list[dict]:
     return [e.model_dump() for e in platform().catalog.list_dashboard_history()]
 
 
+@app.get("/dashboard-activity")
+def get_dashboard_activity() -> list[dict]:
+    return [e.model_dump() for e in platform().catalog.list_dashboard_activity()]
+
+
 @app.post("/dashboard")
 def dashboard(request: DashboardRequest) -> dict:
     """Compose several tiles into one Superset dashboard.
@@ -364,7 +372,7 @@ def dashboard(request: DashboardRequest) -> dict:
     """
     from datetime import datetime, timezone
 
-    from ..catalog.models import DashboardHistoryEntry
+    from ..catalog.models import DashboardActivityEntry, DashboardHistoryEntry
     from ..superset.layout import pack_rows
 
     if not request.datasets:
@@ -388,6 +396,19 @@ def dashboard(request: DashboardRequest) -> dict:
                 chart_url=None,
                 datasets=request.datasets,
                 n_charts=len(published.chart_ids),
+                created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            )
+        )
+
+    if not request.live:
+        platform().catalog.add_dashboard_activity(
+            DashboardActivityEntry(
+                action="publish" if published else "preview",
+                title=spec.title,
+                request=request.request,
+                datasets=request.datasets,
+                dashboard_url=published.dashboard_url if published else None,
+                n_charts=len(published.chart_ids) if published else 0,
                 created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             )
         )

@@ -365,39 +365,43 @@
            graphs beneath, detail table at the bottom — published to Superset as a single dashboard.</p>
       </div>
 
-      <div class="card">
-        <div class="row">
-          <div style="flex:0 1 240px;min-width:160px">
-            <label for="db-dataset-add">Tables
-              <span style="color:var(--faint)">— add one or more</span>
-            </label>
-            <select id="db-dataset-add"><option value="">+ add a table…</option></select>
-            <div id="db-dataset-chips" class="chips" style="margin-top:8px"></div>
+      <div class="db-layout">
+        <div class="db-main">
+          <div class="card">
+            <div class="row">
+              <div style="flex:0 1 240px;min-width:160px">
+                <label for="db-dataset-add">Tables
+                  <span style="color:var(--faint)">— add one or more</span>
+                </label>
+                <select id="db-dataset-add"><option value="">+ add a table…</option></select>
+                <div id="db-dataset-chips" class="chips" style="margin-top:8px"></div>
+              </div>
+              <div class="grow">
+                <label for="db-request">What should it show?
+                  <span style="color:var(--faint)">— updates as you type. Understood: "3 kpi cards", "weekly", "by region", "no detail table"</span>
+                </label>
+                <input id="db-request" placeholder="3 kpi cards, weekly trend, by product category" autocomplete="off">
+              </div>
+              <div style="flex:0 1 180px;min-width:120px">
+                <label for="db-title">Title</label>
+                <input id="db-title" placeholder="Sales Overview" autocomplete="off">
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button id="db-preview">Preview plan</button>
+              <button class="primary" id="db-publish">Publish to Superset</button>
+            </div>
           </div>
-          <div class="grow">
-            <label for="db-request">What should it show?
-              <span style="color:var(--faint)">— updates as you type. Understood: "3 kpi cards", "weekly", "by region", "no detail table"</span>
-            </label>
-            <input id="db-request" placeholder="3 kpi cards, weekly trend, by product category" autocomplete="off">
-          </div>
-          <div style="flex:0 1 180px;min-width:120px">
-            <label for="db-title">Title</label>
-            <input id="db-title" placeholder="Sales Overview" autocomplete="off">
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="db-preview">Preview plan</button>
-          <button class="primary" id="db-publish">Publish to Superset</button>
-        </div>
-      </div>
 
-      <div id="db-status"></div>
-      <div id="db-result"></div>
+          <div id="db-status"></div>
+          <div id="db-result"></div>
+        </div>
 
-      <div id="db-history-section" style="margin-top:24px">
-        <h3 style="font-size:14px;font-weight:600;color:var(--faint);letter-spacing:.04em;
-                   text-transform:uppercase;margin:0 0 10px">History</h3>
-        <div id="db-history"><span style="color:var(--faint);font-size:13px">No dashboards published yet.</span></div>
+        <aside class="db-activity-panel">
+          <h3>Activity</h3>
+          <p class="db-activity-sub">Every prompt you've sent and every dashboard you've published.</p>
+          <div id="db-activity"><span style="color:var(--faint);font-size:13px">No activity yet.</span></div>
+        </aside>
       </div>
     </section>
 

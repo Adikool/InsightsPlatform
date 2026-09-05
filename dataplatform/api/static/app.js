@@ -148,7 +148,7 @@ function switchView(name) {
     button.setAttribute("aria-current", String(button.dataset.view === name));
   });
   location.hash = name;
-  if (name === "dashboard") loadDashboardHistory();
+  if (name === "dashboard") loadDashboardActivity();
 }
 
 function toggleTheme() {
@@ -684,11 +684,12 @@ async function runDashboard(publish, { live = false } = {}) {
   try {
     const plan = await api("/dashboard", {
       method: "POST",
-      body: { datasets, request: $("db-request").value, title: $("db-title").value, publish },
+      body: { datasets, request: $("db-request").value, title: $("db-title").value, publish, live },
     });
     if (ticket !== dashboardRequestId) return; // superseded while in flight
     setStatus("db-status", null);
     renderDashboardPlan(plan, { live });
+    if (!live) loadDashboardActivity();
   } catch (error) {
     if (ticket !== dashboardRequestId) return;
     setStatus("db-status", "error", error.message);
@@ -792,47 +793,46 @@ function renderDashboardPlan(plan, { live = false } = {}) {
           </div>`)
       )
     );
-    loadDashboardHistory();
   }
 }
 
-// --------------------------------------------------------- DASHBOARD HISTORY
-async function loadDashboardHistory() {
-  const container = $("db-history");
+// --------------------------------------------------------- DASHBOARD ACTIVITY
+async function loadDashboardActivity() {
+  const container = $("db-activity");
   try {
-    const entries = await api("/dashboard-history", { method: "GET" });
-    renderDashboardHistory(entries, container);
+    const entries = await api("/dashboard-activity", { method: "GET" });
+    renderDashboardActivity(entries, container);
   } catch (_) {
-    // silently skip — history is non-critical
+    // silently skip — activity is non-critical
   }
 }
 
-function renderDashboardHistory(entries, container) {
+function renderDashboardActivity(entries, container) {
   if (!entries || !entries.length) {
-    container.innerHTML = `<span style="color:var(--faint);font-size:13px">No dashboards published yet.</span>`;
+    container.innerHTML = `<span style="color:var(--faint);font-size:13px">No activity yet.</span>`;
     return;
   }
   container.innerHTML = "";
   for (const entry of entries) {
     const date = entry.created_at
-      ? new Date(entry.created_at).toLocaleString(undefined, {
-          dateStyle: "medium", timeStyle: "short",
-        })
+      ? new Date(entry.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
       : "";
     const datasets = (entry.datasets || []).join(", ");
-    const link = entry.dashboard_url
-      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener"
-            style="font-weight:600;font-size:14px">${escapeHtml(entry.title)}</a>`
-      : `<span style="font-weight:600;font-size:14px">${escapeHtml(entry.title)}</span>`;
+    const isPublish = entry.action === "publish";
+    const titleNode = isPublish && entry.dashboard_url
+      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="db-activity-title">${escapeHtml(entry.title)}</a>`
+      : `<span class="db-activity-title">${escapeHtml(entry.title)}</span>`;
     const row = html(`
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;
-                  gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div>
-          ${link}
-          ${datasets ? `<div class="rec-meta" style="margin-top:3px">${escapeHtml(datasets)}</div>` : ""}
-          ${entry.n_charts ? `<div class="rec-meta">${entry.n_charts} chart${entry.n_charts !== 1 ? "s" : ""}</div>` : ""}
+      <div class="db-activity-item">
+        <div class="db-activity-top">
+          <span class="db-activity-badge ${isPublish ? "publish" : "preview"}">${isPublish ? "Published" : "Preview"}</span>
+          ${titleNode}
         </div>
-        <div style="flex-shrink:0;color:var(--faint);font-size:12px;padding-top:2px">${escapeHtml(date)}</div>
+        ${entry.request ? `<div class="db-activity-request">“${escapeHtml(entry.request)}”</div>` : ""}
+        <div class="db-activity-meta">
+          ${datasets ? escapeHtml(datasets) : ""}${datasets && entry.n_charts ? " · " : ""}${entry.n_charts ? `${entry.n_charts} chart${entry.n_charts !== 1 ? "s" : ""}` : ""}
+        </div>
+        <div class="db-activity-meta">${escapeHtml(date)}</div>
       </div>`);
     container.appendChild(row);
   }
