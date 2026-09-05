@@ -701,9 +701,17 @@ function renderDashboardPlan(plan, { live = false } = {}) {
   const container = $("db-result");
   container.innerHTML = "";
 
-  // Draw the grid as it will appear in Superset. Seeing that the detail table
-  // spans the bottom is the fastest way to tell the layout came out right.
   const byTitle = new Map(plan.tiles.map((t) => [t.title, t]));
+  const wrap = document.createElement("div");
+
+  if (plan.interpretation) {
+    wrap.appendChild(html(`<div class="notice info" style="margin-bottom:12px">${escapeHtml(plan.interpretation)}</div>`));
+  }
+  if (plan.description) {
+    wrap.appendChild(html(`<div class="rec-meta" style="margin-bottom:12px">${escapeHtml(plan.description)}</div>`));
+  }
+
+  // Visual grid — each tile is clickable
   const grid = document.createElement("div");
   for (const row of plan.rows) {
     const rowNode = document.createElement("div");
@@ -711,7 +719,7 @@ function renderDashboardPlan(plan, { live = false } = {}) {
     for (const title of row) {
       const tile = byTitle.get(title) || { width: 6, role: "breakdown", chart: "table" };
       const cell = html(`
-        <div class="layout-tile role-${escapeHtml(tile.role)}" style="flex:${tile.width}">
+        <div class="layout-tile role-${escapeHtml(tile.role)}" style="flex:${tile.width}" data-title="${escapeHtml(title)}" tabindex="0" role="button" aria-label="View SQL for ${escapeHtml(title)}">
           <div class="layout-title">${escapeHtml(title)}</div>
           <div class="layout-meta">${escapeHtml(tile.chart)} · ${tile.width}/12</div>
         </div>`);
@@ -719,46 +727,57 @@ function renderDashboardPlan(plan, { live = false } = {}) {
     }
     grid.appendChild(rowNode);
   }
-  const layoutCard = card(`${plan.title} — ${plan.tiles.length} tiles`, grid);
-  // Lead with the readback: if the request was misread, that has to be visible
-  // here rather than inferred from a chart that looks wrong.
-  if (plan.interpretation) {
-    layoutCard.insertBefore(
-      html(`<div class="notice info" style="margin-bottom:12px">${escapeHtml(plan.interpretation)}</div>`),
-      grid
-    );
+  wrap.appendChild(grid);
+
+  // SQL panel — revealed when a tile is clicked
+  const sqlPanel = html(`
+    <div class="db-sql-panel">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;gap:8px">
+        <div style="min-width:0">
+          <span class="db-sql-tile-name" style="font-weight:600;font-size:14px"></span>
+          <span class="db-sql-tile-meta" style="color:var(--faint);font-size:12px;margin-left:8px"></span>
+        </div>
+        <button class="tiny ghost db-sql-copy">Copy SQL</button>
+      </div>
+      <div class="db-sql-explanation" style="color:var(--muted);font-size:13px;margin-bottom:8px"></div>
+      <textarea class="db-sql-editor" spellcheck="false" rows="6"></textarea>
+    </div>`);
+  wrap.appendChild(sqlPanel);
+
+  const combinedCard = card(`${plan.title} — ${plan.tiles.length} tiles`, wrap);
+  container.appendChild(combinedCard);
+
+  // Wire tile clicks
+  function selectTile(titleKey) {
+    for (const b of combinedCard.querySelectorAll(".layout-tile")) b.classList.remove("active");
+    const btn = combinedCard.querySelector(`.layout-tile[data-title="${CSS.escape(titleKey)}"]`);
+    if (btn) btn.classList.add("active");
+    const tile = byTitle.get(titleKey);
+    if (!tile) return;
+    sqlPanel.style.display = "block";
+    sqlPanel.querySelector(".db-sql-tile-name").textContent = tile.title;
+    sqlPanel.querySelector(".db-sql-tile-meta").textContent = `${tile.chart} · ${tile.width}/12`;
+    sqlPanel.querySelector(".db-sql-explanation").textContent = tile.explanation || "";
+    sqlPanel.querySelector(".db-sql-editor").value = tile.sql || "";
   }
-  if (plan.description) {
-    layoutCard.appendChild(html(`<div class="rec-meta" style="margin-top:8px">${escapeHtml(plan.description)}</div>`));
+
+  for (const cell of combinedCard.querySelectorAll(".layout-tile")) {
+    cell.addEventListener("click", () => selectTile(cell.dataset.title));
+    cell.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") selectTile(cell.dataset.title); });
   }
-  container.appendChild(layoutCard);
+
+  sqlPanel.querySelector(".db-sql-copy").addEventListener("click", () => {
+    const txt = sqlPanel.querySelector(".db-sql-editor").value;
+    navigator.clipboard.writeText(txt).catch(() => {});
+  });
+
+  // Auto-select first tile
+  const firstTile = combinedCard.querySelector(".layout-tile");
+  if (firstTile) selectTile(firstTile.dataset.title);
 
   for (const problem of plan.problems || []) {
     container.appendChild(html(`<div class="notice warn">${escapeHtml(problem)}</div>`));
   }
-
-  const tiles = document.createElement("div");
-  for (const tile of plan.tiles) {
-    const details = document.createElement("details");
-    details.className = "rec";
-    details.appendChild(
-      html(`
-        <summary class="rec-head">
-          <span class="rec-rank" style="font-size:10px">${escapeHtml(tile.role.slice(0, 3))}</span>
-          <span class="rec-name">${escapeHtml(tile.title)}</span>
-          <span class="rec-meta">${escapeHtml(tile.chart)} · ${tile.width}/12</span>
-          <span class="chev">›</span>
-        </summary>`)
-    );
-    const body = document.createElement("div");
-    body.className = "rec-body";
-    body.innerHTML =
-      (tile.explanation ? `<div class="rec-meta">${escapeHtml(tile.explanation)}</div>` : "") +
-      `<pre class="sql" style="margin-top:8px">${escapeHtml(tile.sql)}</pre>`;
-    details.appendChild(body);
-    tiles.appendChild(details);
-  }
-  container.appendChild(card("Tiles and their SQL", tiles));
 
   if (plan.superset) {
     container.appendChild(
@@ -773,7 +792,6 @@ function renderDashboardPlan(plan, { live = false } = {}) {
           </div>`)
       )
     );
-    // Refresh history so the new entry appears immediately.
     loadDashboardHistory();
   }
 }
