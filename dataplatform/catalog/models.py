@@ -82,16 +82,18 @@ class DatasetMeta(BaseModel):
     def resolve(self, name: str) -> str | None:
         """Case-insensitive / synonym-aware column resolution -> canonical name."""
         lowered = name.strip().lower()
-        for col in self.columns:
-            if col.name.lower() == lowered:
-                return col.name
         normalised = lowered.replace(" ", "_")
+        fallback: str | None = None
         for col in self.columns:
-            if col.name.lower().replace(" ", "_") == normalised:
-                return col.name
-            if lowered in {syn.lower() for syn in col.synonyms}:
-                return col.name
-        return None
+            col_lower = col.name.lower()
+            if col_lower == lowered:
+                return col.name  # exact match wins immediately
+            if fallback is None:
+                if col_lower.replace(" ", "_") == normalised:
+                    fallback = col.name
+                elif any(syn.lower() == lowered for syn in col.synonyms):
+                    fallback = col.name
+        return fallback
 
     @property
     def measures(self) -> list[ColumnMeta]:

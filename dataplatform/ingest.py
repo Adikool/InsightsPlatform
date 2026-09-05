@@ -56,13 +56,21 @@ class Ingestor:
         limit: int | None = None,
         mode: WriteMode = "replace",
         description: str = "",
+        _connector=None,  # pass an already-open connector to avoid re-opening
     ) -> IngestResult:
         meta = self.catalog.get_source(source_name)
-        with open_connector(meta) as connector:
-            df = connector.read(obj, limit=limit)
 
-        if df.empty:
-            raise ConnectorError(f"{source_name}:{obj} returned no rows")
+        def _read(connector):
+            df = connector.read(obj, limit=limit)
+            if df.empty:
+                raise ConnectorError(f"{source_name}:{obj} returned no rows")
+            return df
+
+        if _connector is not None:
+            df = _read(_connector)
+        else:
+            with open_connector(meta) as connector:
+                df = _read(connector)
 
         df = normalise_columns(df)
         df = self._coerce_types(df)
@@ -89,19 +97,23 @@ class Ingestor:
         self, source_name: str, limit: int | None = None, prefix: bool = True
     ) -> list[IngestResult]:
         meta = self.catalog.get_source(source_name)
+        # Keep the connector open for the full source so each object read reuses
+        # the same engine/connection rather than creating N+1 separate ones.
         with open_connector(meta) as connector:
             objects = connector.list_objects()
-
-        results: list[IngestResult] = []
-        for info in objects:
-            name = safe_table_name(source_name if prefix else "", info.qualified.replace(".", "_"))
-            try:
-                results.append(
-                    self.ingest_object(source_name, info.qualified, dataset_name=name, limit=limit)
-                )
-            except ConnectorError as exc:
-                # One unreadable sheet should not abort a whole workbook.
-                results.append(IngestResult(f"!{name}", 0, 0, source_name, str(exc)))
+            results: list[IngestResult] = []
+            for info in objects:
+                name = safe_table_name(source_name if prefix else "", info.qualified.replace(".", "_"))
+                try:
+                    results.append(
+                        self.ingest_object(
+                            source_name, info.qualified,
+                            dataset_name=name, limit=limit, _connector=connector,
+                        )
+                    )
+                except ConnectorError as exc:
+                    # One unreadable sheet should not abort a whole workbook.
+                    results.append(IngestResult(f"!{name}", 0, 0, source_name, str(exc)))
         return results
 
     @staticmethod

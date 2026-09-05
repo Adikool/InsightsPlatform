@@ -27,8 +27,16 @@ _MAX_SAMPLES = 10
 
 
 def _looks_temporal(series: pd.Series) -> bool:
-    """Try to parse an object column as dates without spamming warnings."""
-    sample = series.dropna().astype(str).head(200)
+    """Try to parse an object column as dates without spamming warnings.
+
+    An object column is not necessarily text — a driver can hand back raw
+    `bytes` for a binary/BLOB column (e.g. SQL Server's `varbinary(max)`).
+    `.astype(str)` on those doesn't stringify the bytes, it tries to *decode*
+    them, and non-UTF8 binary blows up with `UnicodeDecodeError`. Restricting
+    the sample to actual `str` values keeps this a text-only heuristic.
+    """
+    non_null = series.dropna()
+    sample = non_null[non_null.map(lambda v: isinstance(v, str))].astype(str).head(200)
     if sample.empty:
         return False
     try:
@@ -38,8 +46,10 @@ def _looks_temporal(series: pd.Series) -> bool:
     return parsed.notna().mean() > 0.9
 
 
-def infer_semantic_type(name: str, series: pd.Series) -> SemanticType:
-    non_null = series.dropna()
+def infer_semantic_type(
+    name: str, series: pd.Series, _non_null: pd.Series | None = None
+) -> SemanticType:
+    non_null = _non_null if _non_null is not None else series.dropna()
     n = len(non_null)
     n_unique = int(non_null.nunique()) if n else 0
     uniqueness = n_unique / n if n else 0.0
@@ -73,7 +83,10 @@ def infer_semantic_type(name: str, series: pd.Series) -> SemanticType:
     if _looks_temporal(series):
         return "temporal"
 
-    avg_len = float(non_null.astype(str).str.len().mean()) if n else 0.0
+    # `.map(str)` rather than `.astype(str)`: the latter tries to *decode* bytes
+    # as UTF-8 for object columns (pandas' `ensure_string_array`) and raises
+    # `UnicodeDecodeError` on genuinely binary data instead of stringifying it.
+    avg_len = float(non_null.map(lambda v: len(str(v))).mean()) if n else 0.0
     # Long strings are prose whether or not they repeat; a canned support note that
     # appears 4,000 times is still text, and grouping by it is not useful.
     if avg_len > 60 or (uniqueness > 0.6 and avg_len > 40):
@@ -85,7 +98,7 @@ def infer_semantic_type(name: str, series: pd.Series) -> SemanticType:
 
 def profile_column(name: str, series: pd.Series) -> ColumnMeta:
     non_null = series.dropna()
-    semantic = infer_semantic_type(name, series)
+    semantic = infer_semantic_type(name, series, _non_null=non_null)
 
     minimum = maximum = None
     if semantic in ("numeric", "currency") and not non_null.empty:

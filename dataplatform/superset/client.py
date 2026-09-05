@@ -199,8 +199,6 @@ class SupersetClient:
         params: dict,
         description: str = "",
     ) -> int:
-        import json
-
         created = self.post(
             "/chart/",
             {
@@ -256,8 +254,6 @@ class SupersetClient:
         if not raw.strip():
             return False
         try:
-            import json
-
             position = json.loads(raw)
         except ValueError:
             return False
@@ -287,14 +283,10 @@ class SupersetClient:
 
 
 def _json_str(value: str) -> str:
-    import json
-
     return json.dumps(value)
 
 
 def _rison(filters: list[dict]) -> str:
     """Superset list endpoints take a Rison query. JSON is accepted for these
     simple shapes, which avoids a Rison dependency."""
-    import json
-
     return json.dumps({"filters": filters})

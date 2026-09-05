@@ -11,16 +11,21 @@
 <div class="app">
   <nav class="sidebar">
     <div class="brand">
-      <h1>Insight Platform</h1>
-      <p>connectors · NL · superset · ML</p>
+      <div class="brand-text">
+        <h1>Insight Platform</h1>
+        <p>connectors · NL · superset · ML</p>
+      </div>
+      <button id="sidebar-toggle" class="sidebar-toggle" title="Collapse sidebar">&#8249;</button>
     </div>
 
-    <button class="nav-item" data-view="ask" aria-current="true"><span class="glyph">?</span> Ask</button>
-    <button class="nav-item" data-view="data"><span class="glyph">▤</span> Data</button>
-    <button class="nav-item" data-view="sources"><span class="glyph">⇥</span> Sources</button>
-    <button class="nav-item" data-view="dashboard"><span class="glyph">▦</span> Dashboard</button>
-    <button class="nav-item" data-view="analyze"><span class="glyph">◈</span> Analyze</button>
-    <button class="nav-item" data-view="sql"><span class="glyph">&gt;_</span> SQL</button>
+    <button class="nav-item" data-view="home"><span class="glyph">⌂</span><span class="nav-label"> Home</span></button>
+    <button class="nav-item" data-view="sources"><span class="glyph">⇥</span><span class="nav-label"> Configure</span></button>
+    <button class="nav-item" data-view="data"><span class="glyph">▤</span><span class="nav-label"> Data</span></button>
+    <button class="nav-item" data-view="ask-nlp"><span class="glyph">💬</span><span class="nav-label"> Ask</span></button>
+    <button class="nav-item" data-view="ask"><span class="glyph">?</span><span class="nav-label"> Explore</span></button>
+    <button class="nav-item" data-view="dashboard"><span class="glyph">▦</span><span class="nav-label"> Dashboard</span></button>
+    <button class="nav-item" data-view="analyze"><span class="glyph">◈</span><span class="nav-label"> Analyze</span></button>
+    <button class="nav-item" data-view="sql"><span class="glyph">&gt;_</span><span class="nav-label"> SQL</span></button>
 
     <div class="sidebar-foot">
       <div class="env-row"><span>Model</span><span id="env-llm">—</span></div>
@@ -34,10 +39,38 @@
   </nav>
 
   <main>
-    <!-- ------------------------------------------------------------- ASK -->
-    <section class="view" id="view-ask">
+    <!-- ------------------------------------------------------------ ASK -->
+    <section class="view" id="view-ask-nlp" hidden>
       <div class="view-head">
         <h2>Ask</h2>
+        <p>Ask a natural language question about your data and get a descriptive answer powered by NLP.
+           The model understands your data and provides insights without requiring SQL knowledge.</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <label for="ask-nlp-question">Question</label>
+            <input id="ask-nlp-question" placeholder="What is the average sales by region?" autocomplete="off">
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:8px;flex-shrink:0">
+            <div style="flex:0 1 150px;min-width:100px">
+              <label for="ask-nlp-dataset">Restrict to</label>
+              <select id="ask-nlp-dataset"><option value="">any dataset</option></select>
+            </div>
+            <button class="primary" id="ask-nlp-run">Ask</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="ask-nlp-status"></div>
+      <div id="ask-nlp-result"></div>
+    </section>
+
+    <!-- --------------------------------------------------------- EXPLORE -->
+    <section class="view" id="view-ask">
+      <div class="view-head">
+        <h2>Explore</h2>
         <p>A question becomes a validated QuerySpec, then SQL this platform compiles itself.
            The model never writes the SQL that runs.</p>
       </div>
@@ -48,11 +81,13 @@
             <label for="question">Question</label>
             <input id="question" placeholder="monthly revenue by region" autocomplete="off">
           </div>
-          <div style="flex:0 0 170px">
-            <label for="ask-dataset">Restrict to</label>
-            <select id="ask-dataset"><option value="">any dataset</option></select>
+          <div style="display:flex;align-items:flex-end;gap:8px;flex-shrink:0">
+            <div style="flex:0 1 150px;min-width:100px">
+              <label for="ask-dataset">Restrict to</label>
+              <select id="ask-dataset"><option value="">any dataset</option></select>
+            </div>
+            <button class="primary" id="ask-run">Explore</button>
           </div>
-          <button class="primary" id="ask-run">Ask</button>
         </div>
         <div class="row" style="margin-top:10px">
           <label class="checkline"><input type="checkbox" id="ask-agent"> Agent mode (multi-step, needs a key)</label>
@@ -74,7 +109,7 @@
            and sample values are what let a question resolve to the right column.</p>
       </div>
       <div class="row" style="margin-bottom:14px">
-        <div style="flex:0 0 300px">
+        <div style="flex:1 1 260px;max-width:360px">
           <label for="data-dataset">Dataset</label>
           <select id="data-dataset"></select>
         </div>
@@ -82,10 +117,213 @@
       <div id="data-detail"></div>
     </section>
 
+    <!-- ------------------------------------------------------------- HOME -->
+    <section class="view" id="view-home" hidden>
+      <style>
+        main { min-width: 0; }
+
+        /* ---- flowchart layout ---- */
+        .ft { display:flex; flex-direction:column; align-items:center; gap:0; }
+
+        /* Configure root card */
+        .ft-root-row { display:flex; justify-content:center; }
+
+        /* SVG connector */
+        .ft-connector { width:100%; }
+        .ft-conn-6, .ft-conn-3 { display:block; width:100%; height:44px; overflow:visible; }
+        .ft-conn-3 { display:none; }
+        @media(max-width:700px){ .ft-conn-6 { display:none; } .ft-conn-3 { display:block; } }
+        @media(max-width:480px){ .ft-conn-3 { display:none; } }
+
+        /* branch grid — 6 columns, 1 row */
+        .ft-branches {
+          display:grid;
+          grid-template-columns:repeat(6,minmax(0,1fr));
+          gap:16px; width:100%;
+        }
+        @media(max-width:700px){
+          .ft-branches { grid-template-columns:repeat(3,minmax(0,1fr)); }
+        }
+        @media(max-width:480px){
+          .ft-branches { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        }
+
+        .ft-node { position:relative; }
+
+        /* ---- card shell (shared) ---- */
+        .fc {
+          background:var(--surface);
+          border:1px solid var(--border);
+          border-radius:var(--radius);
+          padding:20px;
+          cursor:pointer; text-align:left;
+          transition:border-color .15s, box-shadow .15s, transform .12s;
+          display:flex; flex-direction:column; gap:10px;
+          width:100%; box-sizing:border-box;
+          min-width:0; white-space:normal;
+          height:100%;
+        }
+        .fc:hover { border-color:var(--accent); box-shadow:var(--shadow); transform:translateY(-2px); }
+        .fc:active { transform:translateY(0); box-shadow:none; }
+
+        /* root card variant */
+        .fc-root {
+          width:min(320px, 100%);
+          border:2px solid var(--accent);
+          background:var(--accent-soft);
+        }
+        .fc-root:hover { background:var(--accent); color:#fff; }
+        .fc-root:hover .fc-icon { background:rgba(255,255,255,.2); color:#fff; }
+        .fc-root:hover .fc-title { color:#fff; }
+        .fc-root:hover .fc-desc { color:rgba(255,255,255,.8); }
+        .fc-root:hover .fc-link { color:rgba(255,255,255,.9); }
+
+        /* explore card variant */
+        .fc-explore { border-color:var(--accent); }
+
+        .fc-icon {
+          width:42px; height:42px; border-radius:9px;
+          background:var(--accent-soft); color:var(--accent);
+          display:flex; align-items:center; justify-content:center;
+          font-size:1.1rem; flex-shrink:0;
+        }
+        .fc-top { display:flex; align-items:center; gap:11px; }
+        .fc-title { font-size:1rem; font-weight:700; color:var(--text); }
+        .fc-desc { font-size:.82rem; color:var(--muted); line-height:1.55; margin:0; overflow-wrap:break-word; word-break:break-word; }
+        .fc-link { font-size:.78rem; color:var(--accent); font-weight:600; margin-top:auto; padding-top:6px; }
+        .fc-badge {
+          display:inline-block; font-size:.65rem; font-weight:600;
+          background:var(--accent-soft); color:var(--accent);
+          border-radius:4px; padding:1px 5px; margin-top:2px; width:fit-content;
+        }
+
+        .ft-note {
+          margin-top:14px; font-size:.75rem; color:var(--faint);
+          text-align:center;
+        }
+      </style>
+
+      <div class="view-head" style="margin-bottom:24px">
+        <h2>Insight Platform</h2>
+        <p>Connect your data, ask questions in plain English, build dashboards, and run ML analysis. Click any node to open that section.</p>
+      </div>
+
+      <div class="ft">
+
+        <!-- root: Configure -->
+        <div class="ft-root-row">
+          <button class="fc fc-root" onclick="switchViewPublic('sources')">
+            <div class="fc-top">
+              <div class="fc-icon">⇥</div>
+              <span class="fc-title">Configure</span>
+            </div>
+            <p class="fc-desc">Start here — register SQL databases or flat files. Each source is ingested into the warehouse and catalogued automatically.</p>
+            <span class="fc-link">Configure →</span>
+          </button>
+        </div>
+
+        <!-- curved SVG connector: 2 branches from Configure center -->
+        <div class="ft-connector">
+          <!-- 6-column desktop: centers at 1/12…11/12 → 50,150,250,350,450,550 -->
+          <svg class="ft-conn-6" viewBox="0 0 600 44" preserveAspectRatio="none">
+            <line x1="300" y1="0" x2="300" y2="12" stroke="var(--accent)" stroke-width="2"/>
+            <path d="M300,12 C300,32 50,28 50,44"   fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <path d="M300,12 C300,32 150,28 150,44"  fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <path d="M300,12 C300,32 250,28 250,44"  fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <path d="M300,12 C300,32 350,28 350,44"  fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <path d="M300,12 C300,32 450,28 450,44"  fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <path d="M300,12 C300,32 550,28 550,44"  fill="none" stroke="var(--border)" stroke-width="1.5"/>
+          </svg>
+          <!-- 3-column mobile: centers at 100,300,500 -->
+          <svg class="ft-conn-3" viewBox="0 0 600 44" preserveAspectRatio="none">
+            <line x1="300" y1="0" x2="300" y2="12" stroke="var(--accent)" stroke-width="2"/>
+            <path d="M300,12 C300,32 100,28 100,44" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <line x1="300" y1="12" x2="300" y2="44"                        stroke="var(--border)" stroke-width="1.5"/>
+            <path d="M300,12 C300,32 500,28 500,44" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+          </svg>
+        </div>
+
+        <!-- 6 parallel branches -->
+        <div class="ft-branches">
+
+          <div class="ft-node">
+            <button class="fc" onclick="switchViewPublic('data')">
+              <div class="fc-top">
+                <div class="fc-icon">▤</div>
+                <span class="fc-title">Data</span>
+              </div>
+              <p class="fc-desc">Browse ingested datasets — row counts, column types, semantic labels, and sample values the language layer uses.</p>
+              <span class="fc-link">Data →</span>
+            </button>
+          </div>
+
+          <div class="ft-node">
+            <button class="fc" onclick="switchViewPublic('ask-nlp')">
+              <div class="fc-top">
+                <div class="fc-icon">💬</div>
+                <span class="fc-title">Ask</span>
+              </div>
+              <p class="fc-desc">Ask a plain-English question and get a narrative answer — trends, summaries, outliers — no SQL required.</p>
+              <span class="fc-link">Ask →</span>
+            </button>
+          </div>
+
+          <div class="ft-node">
+            <button class="fc fc-explore" onclick="switchViewPublic('ask')">
+              <div class="fc-top">
+                <div class="fc-icon">?</div>
+                <span class="fc-title">Explore</span>
+              </div>
+              <p class="fc-desc">Natural language → validated query spec → SQL compiled by the platform. Results can be published to Superset.</p>
+              <span class="fc-badge">→ publishes to Dashboard</span>
+              <span class="fc-link">Explore →</span>
+            </button>
+          </div>
+
+          <div class="ft-node">
+            <button class="fc" onclick="switchViewPublic('dashboard')">
+              <div class="fc-top">
+                <div class="fc-icon">▦</div>
+                <span class="fc-title">Dashboard</span>
+              </div>
+              <p class="fc-desc">Pick tables, describe what to show, and publish a full Superset dashboard — KPI cards, charts, and detail table.</p>
+              <span class="fc-link">Dashboard →</span>
+            </button>
+          </div>
+
+          <div class="ft-node">
+            <button class="fc" onclick="switchViewPublic('analyze')">
+              <div class="fc-top">
+                <div class="fc-icon">◈</div>
+                <span class="fc-title">Analyze</span>
+              </div>
+              <p class="fc-desc">Statistical profiling, pattern detection, and ML algorithm recommendations based on actual data distributions.</p>
+              <span class="fc-link">Analyze →</span>
+            </button>
+          </div>
+
+          <div class="ft-node">
+            <button class="fc" onclick="switchViewPublic('sql')">
+              <div class="fc-top">
+                <div class="fc-icon">&gt;_</div>
+                <span class="fc-title">SQL</span>
+              </div>
+              <p class="fc-desc">Read-only console scoped to catalogued tables. Queries are validated and a LIMIT is injected automatically.</p>
+              <span class="fc-link">SQL →</span>
+            </button>
+          </div>
+
+        </div><!-- /ft-branches -->
+
+
+      </div><!-- /ft -->
+
+    </section>
+
     <!-- --------------------------------------------------------- SOURCES -->
     <section class="view" id="view-sources" hidden>
       <div class="view-head">
-        <h2>Sources</h2>
+        <h2>Configure</h2>
         <p>SQL databases via SQLAlchemy, or Excel / CSV / Parquet from disk. Ingestion
            copies into the warehouse and registers the schema in the catalog.</p>
       </div>
@@ -93,7 +331,7 @@
       <div class="card">
         <h3>Register a source</h3>
         <div class="row">
-          <div style="flex:0 0 160px">
+          <div style="flex:0 1 160px;min-width:110px">
             <label for="src-name">Name</label>
             <input id="src-name" placeholder="sales_db" autocomplete="off">
           </div>
@@ -101,7 +339,7 @@
             <label for="src-uri">URI or path</label>
             <input id="src-uri" placeholder="sqlite:///sample/retail.db" autocomplete="off">
           </div>
-          <div style="flex:0 0 120px">
+          <div style="flex:0 1 120px;min-width:90px">
             <label for="src-type">Type</label>
             <select id="src-type">
               <option value="">auto</option>
@@ -129,9 +367,12 @@
 
       <div class="card">
         <div class="row">
-          <div style="flex:0 0 260px">
-            <label for="db-dataset">Dataset</label>
-            <select id="db-dataset"></select>
+          <div style="flex:0 1 240px;min-width:160px">
+            <label for="db-dataset-add">Tables
+              <span style="color:var(--faint)">— add one or more</span>
+            </label>
+            <select id="db-dataset-add"><option value="">+ add a table…</option></select>
+            <div id="db-dataset-chips" class="chips" style="margin-top:8px"></div>
           </div>
           <div class="grow">
             <label for="db-request">What should it show?
@@ -139,7 +380,7 @@
             </label>
             <input id="db-request" placeholder="3 kpi cards, weekly trend, by product category" autocomplete="off">
           </div>
-          <div style="flex:0 0 180px">
+          <div style="flex:0 1 180px;min-width:120px">
             <label for="db-title">Title</label>
             <input id="db-title" placeholder="Sales Overview" autocomplete="off">
           </div>
@@ -164,11 +405,11 @@
 
       <div class="card">
         <div class="row">
-          <div style="flex:0 0 280px">
+          <div style="flex:0 1 240px;min-width:160px">
             <label for="an-dataset">Dataset</label>
             <select id="an-dataset"></select>
           </div>
-          <div style="flex:0 0 240px">
+          <div style="flex:0 1 200px;min-width:140px">
             <label for="an-target">Target to predict</label>
             <select id="an-target"><option value="">none — unsupervised</option></select>
           </div>

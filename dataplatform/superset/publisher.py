@@ -15,6 +15,7 @@ with `AVG` and flagged in the chart description.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -301,15 +302,9 @@ def publish_dashboard(
 
 
 def _dataset_name(title: str) -> str:
-    import re
-
     slug = re.sub(r"[^0-9A-Za-z]+", "_", title).strip("_").lower() or "query"
     return f"vq_{slug}"[:60]
 
 
 def check_connection(client: SupersetClient | None = None) -> dict:
-    client = client or SupersetClient()
-    try:
-        return client.ping()
-    except SupersetError:
-        raise
+    return (client or SupersetClient()).ping()

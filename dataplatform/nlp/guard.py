@@ -17,9 +17,12 @@ from ..errors import QueryValidationError
 _FORBIDDEN = {
     "insert", "update", "delete", "drop", "alter", "create", "truncate", "grant",
     "revoke", "merge", "replace", "attach", "detach", "copy", "export", "import",
-    "install", "load", "call", "vacuum", "pragma", "set", "reset", "begin",
+    "install", "load", "call", "vacuum", "pragma", "reset", "begin",
     "commit", "rollback", "execute",
 }
+# "set" is checked separately as a leading keyword to avoid false positives
+# on column names that contain the substring "set" (e.g. dataset, offset, reset_flag).
+_FORBIDDEN_LEADING = {"set"}
 _FORBIDDEN_FUNCS = {"read_csv", "read_parquet", "read_json", "pg_read_file", "load_extension"}
 
 _COMMENT = re.compile(r"(--[^\n]*)|(/\*.*?\*/)", re.S)
@@ -47,6 +50,10 @@ def validate_sql(sql: str, catalog: Catalog, max_rows: int | None = None) -> str
 
     words = set(re.findall(r"\b[a-z_]+\b", lowered))
     banned = words & _FORBIDDEN
+    # Check leading-keyword-only terms separately to avoid false positives on
+    # column/table names containing those substrings (e.g. "dataset", "offset").
+    if first in _FORBIDDEN_LEADING:
+        banned.add(first)
     if banned:
         raise QueryValidationError(f"statement contains forbidden keyword(s): {sorted(banned)}")
     banned_funcs = words & _FORBIDDEN_FUNCS

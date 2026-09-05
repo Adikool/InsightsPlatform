@@ -27,12 +27,13 @@ class Catalog:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.loads(self.state.model_dump_json())
-        # atomic write: a half-written catalog would break every other layer
+        # model_dump(mode="json") gives a JSON-safe dict directly — no round-trip
+        # through a string. atomic write so a crash never leaves a partial catalog.
+        payload = self.state.model_dump(mode="json")
         with tempfile.NamedTemporaryFile(
             "w", dir=self.path.parent, delete=False, encoding="utf-8", suffix=".tmp"
         ) as handle:
-            json.dump(payload, handle, indent=2, default=str)
+            json.dump(payload, handle, indent=2)
             tmp = Path(handle.name)
         tmp.replace(self.path)
 

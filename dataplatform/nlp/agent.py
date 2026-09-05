@@ -55,6 +55,7 @@ class AnalystAgent:
         self.warehouse = warehouse
         self.compiler = SQLCompiler(catalog, dialect=warehouse.dialect)
         self.model = model or settings.model
+        self._client = None  # lazy-init once at first ask()
 
     # ------------------------------------------------------------- tool impls
     def _list_datasets(self) -> str:
@@ -94,10 +95,18 @@ class AnalystAgent:
         note = "" if len(frame) <= MAX_TOOL_ROWS else f"\n({len(frame)} rows, showing {MAX_TOOL_ROWS})"
         return f"SQL:\n{compiled.sql}\n\nRESULT:\n{preview.to_csv(index=False)}{note}"
 
+    def _get_client(self):
+        if self._client is None:
+            try:
+                import anthropic
+            except ImportError as exc:  # pragma: no cover
+                raise LLMUnavailable("the `anthropic` package is not installed") from exc
+            self._client = anthropic.Anthropic()
+        return self._client
+
     # ------------------------------------------------------------------- run
     def ask(self, question: str, max_turns: int = 12) -> AgentResult:
         try:
-            import anthropic
             from anthropic import beta_tool
         except ImportError as exc:  # pragma: no cover
             raise LLMUnavailable("the `anthropic` package is not installed") from exc
@@ -147,7 +156,7 @@ class AnalystAgent:
             """
             return self._run_query(spec_json)
 
-        client = anthropic.Anthropic()
+        client = self._get_client()
         runner = client.beta.messages.tool_runner(
             model=self.model,
             max_tokens=settings.max_tokens,

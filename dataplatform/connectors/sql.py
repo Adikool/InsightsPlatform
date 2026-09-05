@@ -4,12 +4,26 @@ with a dialect installed."""
 from __future__ import annotations
 
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..catalog.models import SourceMeta
 from ..errors import ConnectorError
 from .base import Connector, ObjectInfo
+
+# SQL Server's CLR UDTs (hierarchyid, geography, geometry) report as ODBC type
+# -151 ("SQL_SS_UDT"), which pyodbc has no native decoder for — it raises
+# ProgrammingError on the first row read rather than returning a value. There is
+# no per-column opt-out in a generic `SELECT *`, so every table with one of these
+# columns is unreadable until the driver is told what to do with that type.
+# Decoding to the raw bytes' hex keeps ingestion working; it is not the
+# `.ToString()` path SQL Server itself would render (a hierarchyid path, a WKT
+# point), just a stable, lossless placeholder.
+_MSSQL_UDT_SQL_TYPE = -151
+
+
+def _decode_mssql_udt(raw: bytes | None) -> str | None:
+    return raw.hex() if raw is not None else None
 
 
 class SQLConnector(Connector):
@@ -21,6 +35,11 @@ class SQLConnector(Connector):
             self._engine = create_engine(meta.uri, pool_pre_ping=True)
         except SQLAlchemyError as exc:
             raise ConnectorError(f"could not build an engine for {meta.name}: {exc}") from exc
+
+        if self._engine.dialect.name == "mssql" and self._engine.driver == "pyodbc":
+            @event.listens_for(self._engine, "connect")
+            def _register_udt_converter(dbapi_connection, _record):
+                dbapi_connection.add_output_converter(_MSSQL_UDT_SQL_TYPE, _decode_mssql_udt)
 
     def test(self) -> None:
         try:
@@ -59,9 +78,13 @@ class SQLConnector(Connector):
         preparer = self._engine.dialect.identifier_preparer
         parts = obj.split(".")
         quoted = ".".join(preparer.quote(part) for part in parts)
-        sql = f"SELECT * FROM {quoted}"
-        if limit:
-            sql += f" LIMIT {int(limit)}"
+        # SQL Server uses TOP n instead of LIMIT n
+        if limit and self._engine.dialect.name == "mssql":
+            sql = f"SELECT TOP {int(limit)} * FROM {quoted}"
+        else:
+            sql = f"SELECT * FROM {quoted}"
+            if limit:
+                sql += f" LIMIT {int(limit)}"
         try:
             with self._engine.connect() as conn:
                 return pd.read_sql(text(sql), conn)

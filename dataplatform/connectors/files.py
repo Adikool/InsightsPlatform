@@ -79,10 +79,11 @@ class ExcelConnector(Connector):
         self.test()
         header = self.meta.options.get("header")
         try:
-            if header is None:
-                probe = pd.read_excel(self.path, sheet_name=obj, header=None, nrows=15)
-                header = _find_header_row(probe)
-            df = pd.read_excel(self.path, sheet_name=obj, header=int(header), nrows=limit)
+            with pd.ExcelFile(self.path) as book:
+                if header is None:
+                    probe = book.parse(obj, header=None, nrows=15)
+                    header = _find_header_row(probe)
+                df = book.parse(obj, header=int(header), nrows=limit)
         except Exception as exc:
             raise ConnectorError(f"could not read sheet {obj!r} from {self.path}: {exc}") from exc
         return normalise_columns(df).dropna(how="all")
@@ -111,7 +112,8 @@ class CSVConnector(Connector):
 
     def read(self, obj: str, limit: int | None = None) -> pd.DataFrame:
         self.test()
-        matches = [p for p in self._files() if p.stem == obj] or self._files()
+        files = self._files()
+        matches = [p for p in files if p.stem == obj] or files
         if not matches:
             raise ConnectorError(f"no CSV matching {obj!r} under {self.path}")
         try:
@@ -136,13 +138,16 @@ class ParquetConnector(CSVConnector):
 
     def read(self, obj: str, limit: int | None = None) -> pd.DataFrame:
         self.test()
-        matches = [p for p in self._files() if p.stem == obj] or self._files()
+        files = self._files()
+        matches = [p for p in files if p.stem == obj] or files
         if not matches:
             raise ConnectorError(f"no parquet matching {obj!r} under {self.path}")
         try:
-            df = pd.read_parquet(matches[0])
+            if limit:
+                import pyarrow.parquet as pq
+                df = pq.read_table(matches[0], nrows=limit).to_pandas()
+            else:
+                df = pd.read_parquet(matches[0])
         except Exception as exc:
             raise ConnectorError(f"could not read {matches[0]}: {exc}") from exc
-        if limit:
-            df = df.head(limit)
         return normalise_columns(df)

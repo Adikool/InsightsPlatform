@@ -56,6 +56,9 @@ class DuckDBWarehouse(Warehouse):
                 raise WarehouseError(f"write to {table} failed: {exc}") from exc
             finally:
                 conn.unregister("_incoming")
+            # For replace we wrote exactly len(df) rows — no COUNT(*) needed.
+            if mode == "replace":
+                return len(df)
             return int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
 
     def query(self, sql: str) -> pd.DataFrame:
