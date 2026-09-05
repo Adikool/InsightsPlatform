@@ -101,6 +101,10 @@ class Catalog:
     def list_dashboard_activity(self) -> list[DashboardActivityEntry]:
         return list(self.state.dashboard_activity)
 
+    def clear_dashboard_activity(self) -> None:
+        self.state.dashboard_activity = []
+        self.save()
+
     # ---------------------------------------------------------- semantic aid
     def define_metric(self, name: str, expression: str) -> None:
         """Register a named business metric, e.g. aov = sum(revenue)/count(order_id)."""

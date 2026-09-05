@@ -617,6 +617,7 @@ function ingestLine(result) {
 function wireDashboard() {
   $("db-preview").addEventListener("click", () => runDashboard(false));
   $("db-publish").addEventListener("click", () => runDashboard(true));
+  $("db-activity-clear").addEventListener("click", clearDashboardActivity);
 
   // Composing is a 5-30ms round trip with no warehouse query behind it, so the
   // plan can track the text as you type. Publishing stays an explicit click —
@@ -797,6 +798,16 @@ function renderDashboardPlan(plan, { live = false } = {}) {
 }
 
 // --------------------------------------------------------- DASHBOARD ACTIVITY
+async function clearDashboardActivity() {
+  if (!confirm("Clear all dashboard activity? This cannot be undone.")) return;
+  try {
+    await api("/dashboard-activity", { method: "DELETE" });
+    await loadDashboardActivity();
+  } catch (error) {
+    setStatus("db-status", "error", error.message);
+  }
+}
+
 async function loadDashboardActivity() {
   const container = $("db-activity");
   try {

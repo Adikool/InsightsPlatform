@@ -363,6 +363,12 @@ def get_dashboard_activity() -> list[dict]:
     return [e.model_dump() for e in platform().catalog.list_dashboard_activity()]
 
 
+@app.delete("/dashboard-activity")
+def clear_dashboard_activity() -> dict:
+    platform().catalog.clear_dashboard_activity()
+    return {"cleared": True}
+
+
 @app.post("/dashboard")
 def dashboard(request: DashboardRequest) -> dict:
     """Compose several tiles into one Superset dashboard.
