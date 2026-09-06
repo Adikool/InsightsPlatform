@@ -892,7 +892,7 @@ function renderExploreActivity(entries, container) {
       ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="activity-badge publish" style="text-decoration:none">Published</a>`
       : "";
     const row = html(`
-      <div class="activity-item">
+      <div class="activity-item clickable" title="Click to run this question again">
         <div class="activity-top">
           <span class="activity-badge ${entry.mode}">${escapeHtml(entry.mode)}</span>
           ${publishedNote}
@@ -901,6 +901,12 @@ function renderExploreActivity(entries, container) {
         <div class="activity-meta">${entry.row_count != null ? `${entry.row_count} rows` : ""}</div>
         <div class="activity-meta">${escapeHtml(date)}</div>
       </div>`);
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return; // let the "Published" link behave normally
+      $("question").value = entry.question;
+      $("ask-agent").checked = entry.mode === "agent";
+      runAsk();
+    });
     container.appendChild(row);
   }
 }
