@@ -120,7 +120,15 @@ class Catalog:
         self.save()
 
     def add_dashboard_activity(self, entry: DashboardActivityEntry) -> None:
-        self._add_activity("dashboard_activity", entry)
+        self._add_activity(
+            "dashboard_activity",
+            entry,
+            dedupe_key=lambda e: (
+                e.title.strip().lower(),
+                e.request.strip().lower(),
+                tuple(sorted(d.lower() for d in e.datasets)),
+            ),
+        )
 
     def list_dashboard_activity(self) -> list[DashboardActivityEntry]:
         return list(self.state.dashboard_activity)
