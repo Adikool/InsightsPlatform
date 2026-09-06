@@ -838,7 +838,7 @@ function renderDashboardActivity(entries, container) {
       ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="activity-title">${escapeHtml(entry.title)}</a>`
       : `<span class="activity-title">${escapeHtml(entry.title)}</span>`;
     const row = html(`
-      <div class="activity-item">
+      <div class="activity-item clickable" title="Click to preview this dashboard again">
         <div class="activity-top">
           <span class="activity-badge ${isPublish ? "publish" : "preview"}">${isPublish ? "Published" : "Preview"}</span>
           ${titleNode}
@@ -849,6 +849,14 @@ function renderDashboardActivity(entries, container) {
         </div>
         <div class="activity-meta">${escapeHtml(date)}</div>
       </div>`);
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return; // let the published-dashboard link behave normally
+      state.dbDatasets = [...(entry.datasets || [])];
+      renderDbDatasetChips();
+      $("db-title").value = entry.title;
+      $("db-request").value = entry.request || "";
+      runDashboard(false); // always re-preview — publishing stays an explicit click
+    });
     container.appendChild(row);
   }
 }
