@@ -913,6 +913,8 @@ function renderExploreActivity(entries, container) {
       if (event.target.closest("a")) return; // let the "Published" link behave normally
       $("question").value = entry.question;
       $("ask-agent").checked = entry.mode === "agent";
+      $("ask-publish").checked = !!entry.published;
+      $("ask-dashboard").hidden = !entry.published; // matches the checkbox's own change handler
       runAsk();
     });
     container.appendChild(row);
