@@ -213,7 +213,11 @@ button.tiny { padding: 3px 8px; font-size: 12px; }
 
 /* ------------------------------------------------------------------ tables */
 .table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+/* auto width (not 100%): a 1-2 column result should hug its own content
+   rather than stretch across the card, which used to shove a lone numeric
+   column's right-aligned value to the far edge of the page. Wide tables
+   still scroll via .table-wrap's overflow-x. */
+table { border-collapse: collapse; width: auto; max-width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { background: var(--surface-2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; }
 tbody tr:hover { background: var(--surface-2); }
