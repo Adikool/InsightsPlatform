@@ -855,7 +855,7 @@ function renderDashboardActivity(entries, container) {
       renderDbDatasetChips();
       $("db-title").value = entry.title;
       $("db-request").value = entry.request || "";
-      runDashboard(false); // always re-preview — publishing stays an explicit click
+      runDashboard(entry.action === "publish"); // replay the same action it logged
     });
     container.appendChild(row);
   }
