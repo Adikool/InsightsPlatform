@@ -896,8 +896,14 @@ function renderExploreActivity(entries, container) {
   container.innerHTML = "";
   for (const entry of entries) {
     const date = fmtActivityDate(entry.created_at);
-    const publishedNote = entry.published && entry.dashboard_url
-      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="activity-badge publish" style="text-decoration:none">Published</a>`
+    // A publish without a dashboard title creates a standalone chart, which
+    // has no dashboard_url — fall back to chart_url so a published entry
+    // always shows the badge, never looking unpublished.
+    const publishLink = entry.dashboard_url || entry.chart_url;
+    const publishedNote = entry.published
+      ? (publishLink
+          ? `<a href="${escapeHtml(publishLink)}" target="_blank" rel="noopener" class="activity-badge publish" style="text-decoration:none">Published</a>`
+          : `<span class="activity-badge publish">Published</span>`)
       : "";
     const row = html(`
       <div class="activity-item clickable" title="Click to run this question again">

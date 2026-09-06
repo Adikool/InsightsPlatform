@@ -331,6 +331,7 @@ def ask(request: AskRequest) -> dict:
             row_count=len(result.data),
             published=bool(result.published),
             dashboard_url=result.published.dashboard_url if result.published else None,
+            chart_url=result.published.chart_url if result.published else None,
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
     )

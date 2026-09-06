@@ -152,6 +152,10 @@ class ExploreActivityEntry(BaseModel):
     row_count: int | None = None
     published: bool = False
     dashboard_url: str | None = None
+    # Publishing without a dashboard title creates a standalone chart, which
+    # has no dashboard_url — chart_url is the fallback so a published entry
+    # always has *some* link to show, instead of looking unpublished.
+    chart_url: str | None = None
     created_at: str = ""
 
 
