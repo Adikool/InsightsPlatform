@@ -148,7 +148,11 @@ class Catalog:
         self._clear_activity("explore_activity")
 
     def add_ask_activity(self, entry: AskActivityEntry) -> None:
-        self._add_activity("ask_activity", entry)
+        self._add_activity(
+            "ask_activity",
+            entry,
+            dedupe_key=lambda e: (e.question.strip().lower(), (e.dataset or "").lower()),
+        )
 
     def list_ask_activity(self) -> list[AskActivityEntry]:
         return list(self.state.ask_activity)
