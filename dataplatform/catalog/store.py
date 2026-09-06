@@ -103,8 +103,14 @@ class Catalog:
 
     # Every activity log (dashboard, explore, ask) shares the same
     # insert-newest-first / cap / clear shape, so it lives in one place.
-    def _add_activity(self, attr: str, entry) -> None:
+    # `dedupe_key`, when given, drops any existing entry that shares the new
+    # one's key first — re-running the same question bumps it to the top with
+    # a fresh timestamp instead of piling up duplicates.
+    def _add_activity(self, attr: str, entry, dedupe_key=None) -> None:
         log = getattr(self.state, attr)
+        if dedupe_key is not None:
+            key = dedupe_key(entry)
+            log[:] = [e for e in log if dedupe_key(e) != key]
         log.insert(0, entry)
         del log[_MAX_ACTIVITY_ENTRIES:]
         self.save()
@@ -123,7 +129,9 @@ class Catalog:
         self._clear_activity("dashboard_activity")
 
     def add_explore_activity(self, entry: ExploreActivityEntry) -> None:
-        self._add_activity("explore_activity", entry)
+        self._add_activity(
+            "explore_activity", entry, dedupe_key=lambda e: e.question.strip().lower()
+        )
 
     def list_explore_activity(self) -> list[ExploreActivityEntry]:
         return list(self.state.explore_activity)
