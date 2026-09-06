@@ -949,11 +949,16 @@ function renderAskActivity(entries, container) {
   for (const entry of entries) {
     const date = fmtActivityDate(entry.created_at);
     const row = html(`
-      <div class="activity-item">
+      <div class="activity-item clickable" title="Click to ask this question again">
         <div class="activity-request">“${escapeHtml(entry.question)}”</div>
         <div class="activity-meta">${escapeHtml(entry.dataset || "any dataset")}</div>
         <div class="activity-meta">${escapeHtml(date)}</div>
       </div>`);
+    row.addEventListener("click", () => {
+      $("ask-nlp-question").value = entry.question;
+      $("ask-nlp-dataset").value = entry.dataset || "";
+      runAskNlp();
+    });
     container.appendChild(row);
   }
 }
