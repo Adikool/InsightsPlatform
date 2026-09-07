@@ -200,9 +200,23 @@ def test_superset_uri_can_differ_from_our_own():
         publisher_module.settings.superset_warehouse_uri = original
 
 
-def test_publishing_a_local_duckdb_fails_with_the_real_reason():
+def test_publishing_a_local_duckdb_fails_with_the_real_reason(monkeypatch):
     """A containerised Superset cannot open a host file path — say so up front."""
     from dataplatform.errors import SupersetError
+    from dataplatform.superset import publisher as publisher_module
+
+    # The guard only applies when no Superset-side URI is configured, and
+    # `settings` is loaded from the developer's own .env at import. Without
+    # pinning it here the test passes on a clean checkout and fails for anyone
+    # who has actually set up Superset - it would take the configured URI,
+    # never reach the guard, and die on the stub client instead.
+    #
+    # Patch the module's own reference, not dataplatform.config.settings:
+    # publisher.py did `from ..config import settings` at import, so tests that
+    # replace config.settings wholesale (test_api, test_end_to_end) leave the
+    # two pointing at different objects, and patching the wrong one silently
+    # does nothing.
+    monkeypatch.setattr(publisher_module.settings, "superset_warehouse_uri", "")
 
     class DuckWarehouse:
         sqlalchemy_uri = "duckdb:///C:/Users/someone/warehouse.duckdb"
