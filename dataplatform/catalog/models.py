@@ -168,10 +168,15 @@ class AskActivityEntry(BaseModel):
 
 
 class CatalogState(BaseModel):
+    """One workspace's catalog: what data exists and how to read it.
+
+    Activity and history used to live here too, but they are per-user and
+    written on nearly every request, so they moved to SQLite (see
+    `dataplatform.store.activity`). The entry models above are still the
+    interchange shape for those records. Pydantic ignores unknown keys, so a
+    pre-auth catalog.json carrying the old lists still loads cleanly.
+    """
+
     sources: dict[str, SourceMeta] = Field(default_factory=dict)
     datasets: dict[str, DatasetMeta] = Field(default_factory=dict)
     metrics: dict[str, str] = Field(default_factory=dict)
-    dashboard_history: list[DashboardHistoryEntry] = Field(default_factory=list)
-    dashboard_activity: list[DashboardActivityEntry] = Field(default_factory=list)
-    explore_activity: list[ExploreActivityEntry] = Field(default_factory=list)
-    ask_activity: list[AskActivityEntry] = Field(default_factory=list)

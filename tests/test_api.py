@@ -55,7 +55,19 @@ def client(tmp_path, monkeypatch):
 
     api_main._platform = platform
     monkeypatch.setattr(api_main, "settings", config_module.settings)
-    yield TestClient(api_main.app)
+
+    # Every route below the auth gate needs a session. TestClient keeps cookies
+    # across requests, so signing up once authenticates the whole fixture.
+    # Deliberately no auth-bypass flag: the tests must exercise the real gate.
+    from dataplatform.store import db as store_db
+
+    monkeypatch.setattr(store_db.settings, "home", tmp_path, raising=False)
+    store_db.init()
+
+    client = TestClient(api_main.app)
+    signup = client.post("/auth/signup", json={"username": "tester", "password": "test-password"})
+    assert signup.status_code == 200, signup.text
+    yield client
     api_main._platform = None
 
 

@@ -28,7 +28,12 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     // FastAPI puts the message in `detail`; surface that rather than a status code.
-    throw new Error(payload?.detail || `${response.status} ${response.statusText}`);
+    const error = new Error(payload?.detail || `${response.status} ${response.statusText}`);
+    error.status = response.status;
+    // A session can expire mid-visit, and every panel would otherwise render
+    // its own "not signed in" string. Handle it once, here.
+    if (response.status === 401 && !path.startsWith("/auth/")) showAuthGate();
+    throw error;
   }
   return payload;
 }
@@ -77,6 +82,100 @@ function html(markup) {
 }
 
 // ----------------------------------------------------------------- boot/env
+// ---------------------------------------------------------------- auth gate
+let authMode = "login"; // or "signup"
+
+function showAuthGate() {
+  $("auth-gate").hidden = false;
+  $("app-shell").hidden = true;
+}
+
+function hideAuthGate() {
+  $("auth-gate").hidden = true;
+  $("app-shell").hidden = false;
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const signup = mode === "signup";
+  $("auth-sub").textContent = signup
+    ? "Create an account. Your workspace starts empty and is private to you."
+    : "Sign in to your workspace.";
+  $("auth-submit").textContent = signup ? "Create account" : "Sign in";
+  $("auth-toggle").textContent = signup ? "I already have an account" : "Create an account";
+  // Password managers key off this: reusing "current-password" on a signup
+  // form makes them offer the wrong credential.
+  $("auth-password").setAttribute("autocomplete", signup ? "new-password" : "current-password");
+  $("auth-error").hidden = true;
+}
+
+function wireAuth() {
+  $("auth-toggle").addEventListener("click", () =>
+    setAuthMode(authMode === "login" ? "signup" : "login")
+  );
+
+  $("auth-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = $("auth-username").value.trim();
+    const password = $("auth-password").value;
+    if (!username || !password) return;
+
+    const error = $("auth-error");
+    error.hidden = true;
+    $("auth-submit").disabled = true;
+    try {
+      await api(authMode === "signup" ? "/auth/signup" : "/auth/login", {
+        method: "POST",
+        body: { username, password },
+      });
+      $("auth-password").value = "";
+      await enterApp();
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+    } finally {
+      $("auth-submit").disabled = false;
+    }
+  });
+
+  $("sign-out").addEventListener("click", async () => {
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch (_) {
+      // Signing out locally matters more than the round trip succeeding.
+    }
+    location.reload();
+  });
+}
+
+let booted = false;
+
+async function enterApp() {
+  const me = await api("/auth/me");
+  $("env-user").textContent = me.username;
+  $("env-user").title = me.username;
+  hideAuthGate();
+  if (booted) {
+    // Signed back in after an expiry: the listeners are already attached, so
+    // just refresh what the new session can see.
+    await refreshDatasets();
+    refreshSources();
+    return;
+  }
+  booted = true;
+  await boot();
+}
+
+async function start() {
+  wireAuth();
+  setAuthMode("login");
+  try {
+    await enterApp();
+  } catch (_) {
+    showAuthGate();
+  }
+}
+
 async function boot() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -1198,4 +1297,4 @@ async function runSql() {
 
 // ------------------------------------------------------------------- start
 switchView(location.hash ? location.hash.slice(1) : "home");
-boot();
+start();

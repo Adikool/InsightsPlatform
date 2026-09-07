@@ -53,7 +53,14 @@ class Warehouse(abc.ABC):
         return self.query(f'SELECT * FROM "{table}" LIMIT {int(n)}')
 
 
-def open_warehouse(uri: str | None = None) -> Warehouse:
+def open_warehouse(uri: str | None = None, schema: str | None = None) -> Warehouse:
+    """Open the warehouse, optionally confined to one schema.
+
+    `schema` is how per-user isolation is done on a SQL warehouse: each user's
+    tables live in their own schema, so table names stay unqualified and the
+    catalog/compiler/guard need no notion of who is asking. DuckDB ignores it -
+    there, isolation is a separate file per user.
+    """
     uri = uri or settings.warehouse_uri
     if uri.startswith("duckdb://"):
         from .duckdb_backend import DuckDBWarehouse
@@ -62,7 +69,7 @@ def open_warehouse(uri: str | None = None) -> Warehouse:
     if "://" in uri:
         from .sql_backend import SQLWarehouse
 
-        return SQLWarehouse(uri)
+        return SQLWarehouse(uri, schema=schema)
     raise WarehouseError(f"unrecognised warehouse URI: {uri!r}")
 
 

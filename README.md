@@ -48,8 +48,43 @@ Copy `.env.example` to `.env` and fill in your values:
 | `SUPERSET_URL` | No | `http://localhost:8088` | Superset base URL |
 | `DP_MODEL` | No | `claude-opus-5` | Claude model |
 | `DP_MAX_ROWS` | No | `50000` | Max rows per query |
+| `DP_COOKIE_SECURE` | No | `0` | Set to `1` when serving over HTTPS |
+| `DP_SESSION_TTL_DAYS` | No | `30` | How long a sign-in lasts |
+| `DP_MIN_PASSWORD_LENGTH` | No | `8` | Minimum password length |
 
 *Leave `DP_WAREHOUSE_URI` blank and a local DuckDB file is created automatically — no database setup needed.
+
+## Accounts and workspaces
+
+The first time you open the app it asks you to create an account. Signup is
+open — anyone who can reach the port can register — so do not expose it to an
+untrusted network without putting something in front of it.
+
+Each user gets a **private workspace**: their own sources, datasets, warehouse
+tables and activity history. Nobody can see or query anyone else's data.
+
+* The **first** account adopts whatever was already there, so upgrading an
+  existing install does not appear to lose your ingested data or history.
+* Later accounts start empty. On DuckDB each gets its own warehouse file under
+  `~/.insight-platform/users/<id>/`; on Postgres/SQL Server each gets its own
+  schema (`u<id>`), so table names stay unqualified.
+* Users, sessions and activity live in `~/.insight-platform/app.db` (SQLite in
+  WAL mode). Sources and datasets stay in a `catalog.json` per workspace.
+
+Set `DP_COOKIE_SECURE=1` if you serve the app over HTTPS. Leave it off for
+plain `http://localhost`, or the session cookie is dropped and sign-in fails.
+
+### Known limitations
+
+* **Run a single server process.** The catalog is read once at startup and
+  rewritten whole, so `uvicorn --workers 2` (or two servers on one
+  `DP_HOME`) will have them overwrite each other's catalog changes. Activity
+  and accounts are in SQLite and safe either way; the catalog is not.
+* **The CLI is not user-aware.** `insight ingest ...` operates on the default
+  workspace at `DP_HOME`, not on any web user's. Running CLI writes against a
+  live server can clobber that server's in-memory catalog.
+* **Keep `DP_HOME` on a local disk.** SQLite's WAL mode does not work over
+  network shares (SMB/NFS).
 
 ## Connection string examples
 

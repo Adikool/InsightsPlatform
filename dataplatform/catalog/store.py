@@ -4,28 +4,33 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 from pathlib import Path
 
 from ..config import settings
 from ..errors import CatalogError
-from .models import (
-    AskActivityEntry,
-    CatalogState,
-    DashboardActivityEntry,
-    DashboardHistoryEntry,
-    DatasetMeta,
-    ExploreActivityEntry,
-    SourceMeta,
-)
-
-# Activity is a running log rather than a fixed record set; cap it so the
-# catalog file doesn't grow without bound over months of use.
-_MAX_ACTIVITY_ENTRIES = 200
+from .models import CatalogState, DatasetMeta, SourceMeta
 
 
 class Catalog:
+    """One JSON file's worth of catalog state, guarded by a re-entrant lock.
+
+    FastAPI runs the sync route handlers in a threadpool, so several requests
+    share this object concurrently. Without the lock, `save()` serialising
+    `sources`/`datasets` while another thread ingests into them raises
+    "dictionary changed size during iteration" - reachable today, because
+    `ingest_source` calls `add_dataset` (and so `save`) once per table.
+    The lock is re-entrant so the mutate-then-save pairs can nest freely.
+
+    It does NOT make the file safe across processes: state is read once at
+    construction and never re-read, so a second process writing the same file
+    (a CLI command against a live server, or `uvicorn --workers 2`) still
+    clobbers. See the README.
+    """
+
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path or settings.catalog_path)
+        self._lock = threading.RLock()
         self.state = self._load()
 
     # ------------------------------------------------------------------ io
@@ -38,130 +43,73 @@ class Catalog:
             raise CatalogError(f"catalog at {self.path} is unreadable: {exc}") from exc
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        # model_dump(mode="json") gives a JSON-safe dict directly — no round-trip
-        # through a string. atomic write so a crash never leaves a partial catalog.
-        payload = self.state.model_dump(mode="json")
-        with tempfile.NamedTemporaryFile(
-            "w", dir=self.path.parent, delete=False, encoding="utf-8", suffix=".tmp"
-        ) as handle:
-            json.dump(payload, handle, indent=2)
-            tmp = Path(handle.name)
-        tmp.replace(self.path)
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            # model_dump(mode="json") gives a JSON-safe dict directly - no round-trip
+            # through a string. atomic write so a crash never leaves a partial catalog.
+            payload = self.state.model_dump(mode="json")
+            with tempfile.NamedTemporaryFile(
+                "w", dir=self.path.parent, delete=False, encoding="utf-8", suffix=".tmp"
+            ) as handle:
+                json.dump(payload, handle, indent=2)
+                tmp = Path(handle.name)
+            tmp.replace(self.path)
 
     # -------------------------------------------------------------- sources
     def add_source(self, source: SourceMeta) -> None:
-        self.state.sources[source.name] = source
-        self.save()
+        with self._lock:
+            self.state.sources[source.name] = source
+            self.save()
 
     def get_source(self, name: str) -> SourceMeta:
-        try:
-            return self.state.sources[name]
-        except KeyError:
-            raise CatalogError(
-                f"unknown source {name!r}; registered: {sorted(self.state.sources) or 'none'}"
-            ) from None
+        with self._lock:
+            try:
+                return self.state.sources[name]
+            except KeyError:
+                raise CatalogError(
+                    f"unknown source {name!r}; registered: {sorted(self.state.sources) or 'none'}"
+                ) from None
 
     def list_sources(self) -> list[SourceMeta]:
-        return list(self.state.sources.values())
+        with self._lock:
+            return list(self.state.sources.values())
 
     def remove_source(self, name: str) -> None:
-        self.state.sources.pop(name, None)
-        for ds_name in [d.name for d in self.state.datasets.values() if d.source == name]:
-            self.state.datasets.pop(ds_name, None)
-        self.save()
+        with self._lock:
+            self.state.sources.pop(name, None)
+            for ds_name in [d.name for d in self.state.datasets.values() if d.source == name]:
+                self.state.datasets.pop(ds_name, None)
+            self.save()
 
     # ------------------------------------------------------------- datasets
     def add_dataset(self, dataset: DatasetMeta) -> None:
-        self.state.datasets[dataset.name] = dataset
-        self.save()
+        with self._lock:
+            self.state.datasets[dataset.name] = dataset
+            self.save()
 
     def get_dataset(self, name: str) -> DatasetMeta:
-        if name in self.state.datasets:
-            return self.state.datasets[name]
-        lowered = name.lower()
-        for key, dataset in self.state.datasets.items():
-            if key.lower() == lowered:
-                return dataset
-        raise CatalogError(
-            f"unknown dataset {name!r}; available: {sorted(self.state.datasets) or 'none'}"
-        )
+        with self._lock:
+            if name in self.state.datasets:
+                return self.state.datasets[name]
+            lowered = name.lower()
+            for key, dataset in self.state.datasets.items():
+                if key.lower() == lowered:
+                    return dataset
+            raise CatalogError(
+                f"unknown dataset {name!r}; available: {sorted(self.state.datasets) or 'none'}"
+            )
 
     def list_datasets(self) -> list[DatasetMeta]:
-        return list(self.state.datasets.values())
+        with self._lock:
+            return list(self.state.datasets.values())
 
     def has_dataset(self, name: str) -> bool:
-        return any(key.lower() == name.lower() for key in self.state.datasets)
-
-    # ---------------------------------------------------------- dashboard history
-    def add_dashboard_history(self, entry: DashboardHistoryEntry) -> None:
-        self.state.dashboard_history.insert(0, entry)  # newest first
-        self.save()
-
-    def list_dashboard_history(self) -> list[DashboardHistoryEntry]:
-        return list(self.state.dashboard_history)
-
-    # Every activity log (dashboard, explore, ask) shares the same
-    # insert-newest-first / cap / clear shape, so it lives in one place.
-    # `dedupe_key`, when given, drops any existing entry that shares the new
-    # one's key first — re-running the same question bumps it to the top with
-    # a fresh timestamp instead of piling up duplicates.
-    def _add_activity(self, attr: str, entry, dedupe_key=None) -> None:
-        log = getattr(self.state, attr)
-        if dedupe_key is not None:
-            key = dedupe_key(entry)
-            log[:] = [e for e in log if dedupe_key(e) != key]
-        log.insert(0, entry)
-        del log[_MAX_ACTIVITY_ENTRIES:]
-        self.save()
-
-    def _clear_activity(self, attr: str) -> None:
-        setattr(self.state, attr, [])
-        self.save()
-
-    def add_dashboard_activity(self, entry: DashboardActivityEntry) -> None:
-        self._add_activity(
-            "dashboard_activity",
-            entry,
-            dedupe_key=lambda e: (
-                e.title.strip().lower(),
-                e.request.strip().lower(),
-                tuple(sorted(d.lower() for d in e.datasets)),
-            ),
-        )
-
-    def list_dashboard_activity(self) -> list[DashboardActivityEntry]:
-        return list(self.state.dashboard_activity)
-
-    def clear_dashboard_activity(self) -> None:
-        self._clear_activity("dashboard_activity")
-
-    def add_explore_activity(self, entry: ExploreActivityEntry) -> None:
-        self._add_activity(
-            "explore_activity", entry, dedupe_key=lambda e: e.question.strip().lower()
-        )
-
-    def list_explore_activity(self) -> list[ExploreActivityEntry]:
-        return list(self.state.explore_activity)
-
-    def clear_explore_activity(self) -> None:
-        self._clear_activity("explore_activity")
-
-    def add_ask_activity(self, entry: AskActivityEntry) -> None:
-        self._add_activity(
-            "ask_activity",
-            entry,
-            dedupe_key=lambda e: (e.question.strip().lower(), (e.dataset or "").lower()),
-        )
-
-    def list_ask_activity(self) -> list[AskActivityEntry]:
-        return list(self.state.ask_activity)
-
-    def clear_ask_activity(self) -> None:
-        self._clear_activity("ask_activity")
+        with self._lock:
+            return any(key.lower() == name.lower() for key in self.state.datasets)
 
     # ---------------------------------------------------------- semantic aid
     def define_metric(self, name: str, expression: str) -> None:
         """Register a named business metric, e.g. aov = sum(revenue)/count(order_id)."""
-        self.state.metrics[name] = expression
-        self.save()
+        with self._lock:
+            self.state.metrics[name] = expression
+            self.save()

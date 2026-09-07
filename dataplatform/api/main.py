@@ -2,24 +2,28 @@
 
     uvicorn dataplatform.api.main:app --reload
 
-One Platform instance is shared across requests. The warehouse opens a connection
-per operation, so that is safe; the catalog is read-mostly and rewritten
-atomically on change.
+Every route below the auth gate runs against the signed-in user's own
+workspace: their own catalog file and their own warehouse storage. There is no
+shared Platform - `platform_for` resolves one per user and caches it, so two
+users never see each other's sources, datasets or tables.
 """
 
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from .. import auth, workspace
 from ..config import settings
 from ..errors import (
     CatalogError,
@@ -31,11 +35,22 @@ from ..errors import (
 )
 from ..nlp import QuerySpec
 from ..platform import Platform
+from ..store import activity, db
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    db.init()
+    # Capture the pre-auth activity lists before anything can rewrite
+    # catalog.json without them. Rows land unowned; the first signup adopts.
+    activity.import_pre_auth(settings.catalog_path)
+    yield
+
 
 app = FastAPI(
     title="Insight Platform",
     version="0.1.0",
     description="Connectors -> NL query layer -> Superset -> data-science advisory layer",
+    lifespan=lifespan,
 )
 
 STATIC = Path(__file__).parent / "static"
@@ -60,14 +75,117 @@ class RevalidatingStaticFiles(StaticFiles):
 if STATIC.is_dir():
     app.mount("/static", RevalidatingStaticFiles(directory=STATIC), name="static")
 
+# Test seam only: when set, every user resolves to this Platform instead of
+# their own workspace. It bypasses workspace *selection*, never the auth gate.
 _platform: Platform | None = None
 
 
-def platform() -> Platform:
-    global _platform
-    if _platform is None:
-        _platform = Platform()
-    return _platform
+def current_user(http: Request) -> auth.User:
+    """The signed-in user, as established by the gate below."""
+    user = getattr(http.state, "user", None)
+    if user is None:  # pragma: no cover - the middleware precedes every route
+        raise HTTPException(status_code=401, detail="not signed in")
+    return user
+
+
+def platform_for(user: auth.User) -> Platform:
+    if _platform is not None:
+        return _platform
+    return workspace.platform_for(user)
+
+
+# Reachable without signing in. `/` and `/health` are matched exactly - a
+# `startswith("/")` here would quietly expose the entire app.
+_PUBLIC_EXACT = {"/", "/health", "/favicon.ico"}
+_PUBLIC_PREFIXES = ("/static/", "/auth/")
+
+
+class AuthGate(BaseHTTPMiddleware):
+    """Require a session for everything except the login page and its assets."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path in _PUBLIC_EXACT or path.startswith(_PUBLIC_PREFIXES):
+            return await call_next(request)
+
+        user = auth.resolve_session(request.cookies.get(auth.SESSION_COOKIE))
+        if user is None:
+            return JSONResponse({"detail": "not signed in"}, status_code=401)
+        request.state.user = user
+        return await call_next(request)
+
+
+app.add_middleware(AuthGate)
+
+
+# --------------------------------------------------------------------- auth
+class CredentialsRequest(BaseModel):
+    username: str
+    password: str
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        # False by default: the app is normally served over plain http on
+        # localhost, where a Secure cookie is silently discarded and login
+        # would fail with nothing in the logs. DP_COOKIE_SECURE=1 under TLS.
+        secure=settings.cookie_secure,
+        max_age=settings.session_ttl_days * 24 * 3600,
+    )
+
+
+def _auth_failed(exc: auth.AuthError) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=str(exc))
+
+
+@app.post("/auth/signup")
+def signup(body: CredentialsRequest, http: Request, response: Response) -> dict:
+    client = http.client.host if http.client else "?"
+    try:
+        auth.throttle.check(f"signup:{client}")
+        user = auth.create_user(body.username, body.password)
+    except auth.AuthError as exc:
+        auth.throttle.record_failure(f"signup:{client}")
+        raise _auth_failed(exc) from exc
+    _set_session_cookie(response, auth.create_session(user.id))
+    return {"username": user.username}
+
+
+@app.post("/auth/login")
+def login(body: CredentialsRequest, http: Request, response: Response) -> dict:
+    client = http.client.host if http.client else "?"
+    keys = (f"login:{client}", f"user:{auth.normalize_username(body.username)}")
+    try:
+        for key in keys:
+            auth.throttle.check(key)
+        user = auth.verify_credentials(body.username, body.password)
+    except auth.AuthError as exc:
+        for key in keys:
+            auth.throttle.record_failure(key)
+        raise _auth_failed(exc) from exc
+    for key in keys:
+        auth.throttle.clear(key)
+    _set_session_cookie(response, auth.create_session(user.id))
+    return {"username": user.username}
+
+
+@app.post("/auth/logout")
+def logout(http: Request, response: Response) -> dict:
+    auth.delete_session(http.cookies.get(auth.SESSION_COOKIE))
+    response.delete_cookie(auth.SESSION_COOKIE)
+    return {"signed_out": True}
+
+
+@app.get("/auth/me")
+def me(http: Request) -> dict:
+    user = auth.resolve_session(http.cookies.get(auth.SESSION_COOKIE))
+    if user is None:
+        raise HTTPException(status_code=401, detail="not signed in")
+    return {"username": user.username}
 
 
 _STATUS = {
@@ -164,7 +282,6 @@ def health() -> dict:
         "status": "ok",
         "warehouse": settings.warehouse_uri,
         "llm": settings.has_llm,
-        "datasets": len(platform().list_datasets()),
     }
 
 
@@ -213,14 +330,14 @@ def superset_check() -> dict:
 
 
 @app.get("/sources")
-def list_sources() -> list[dict]:
-    return [meta.model_dump() for meta in platform().list_sources()]
+def list_sources(http: Request) -> list[dict]:
+    return [meta.model_dump() for meta in platform_for(current_user(http)).list_sources()]
 
 
 @app.post("/sources")
-def add_source(request: SourceRequest) -> dict:
+def add_source(request: SourceRequest, http: Request) -> dict:
     try:
-        meta = platform().add_source(
+        meta = platform_for(current_user(http)).add_source(
             request.name,
             request.uri,
             type=request.type,
@@ -233,79 +350,80 @@ def add_source(request: SourceRequest) -> dict:
 
 
 @app.get("/sources/{name}/objects")
-def list_objects(name: str) -> list[str]:
+def list_objects(name: str, http: Request) -> list[str]:
     try:
-        return platform().list_objects(name)
+        return platform_for(current_user(http)).list_objects(name)
     except PlatformError as exc:
         raise _fail(exc) from exc
 
 
 @app.post("/ingest")
-def ingest(request: IngestRequest) -> list[dict]:
+def ingest(request: IngestRequest, http: Request) -> list[dict]:
     try:
-        results = platform().ingest(request.source, obj=request.object, limit=request.limit)
+        results = platform_for(current_user(http)).ingest(
+            request.source, obj=request.object, limit=request.limit
+        )
     except PlatformError as exc:
         raise _fail(exc) from exc
     return [result.__dict__ for result in results]
 
 
 @app.get("/datasets")
-def list_datasets() -> list[dict]:
-    return [meta.model_dump() for meta in platform().list_datasets()]
+def list_datasets(http: Request) -> list[dict]:
+    return [meta.model_dump() for meta in platform_for(current_user(http)).list_datasets()]
 
 
 @app.get("/datasets/{name}")
-def get_dataset(name: str) -> dict:
+def get_dataset(name: str, http: Request) -> dict:
     try:
-        return platform().dataset(name).model_dump()
+        return platform_for(current_user(http)).dataset(name).model_dump()
     except PlatformError as exc:
         raise _fail(exc) from exc
 
 
 @app.get("/datasets/{name}/preview")
-def preview_dataset(name: str, limit: int = 50) -> dict:
+def preview_dataset(name: str, http: Request, limit: int = 50) -> dict:
     try:
-        frame = platform().frame(name, limit=min(limit, 500))
+        frame = platform_for(current_user(http)).frame(name, limit=min(limit, 500))
     except PlatformError as exc:
         raise _fail(exc) from exc
     return {"columns": list(frame.columns), "rows": _records(frame, limit)}
 
 
 @app.delete("/sources/{name}")
-def remove_source(name: str) -> dict:
-    platform().remove_source(name)
+def remove_source(name: str, http: Request) -> dict:
+    platform_for(current_user(http)).remove_source(name)
     return {"removed": name}
 
 
 @app.get("/explore-activity")
-def get_explore_activity() -> list[dict]:
-    return [e.model_dump() for e in platform().catalog.list_explore_activity()]
+def get_explore_activity(http: Request) -> list[dict]:
+    return [e.model_dump() for e in activity.list_explore(current_user(http).id)]
 
 
 @app.delete("/explore-activity")
-def clear_explore_activity() -> dict:
-    platform().catalog.clear_explore_activity()
+def clear_explore_activity(http: Request) -> dict:
+    activity.clear(current_user(http).id, "explore_activity")
     return {"cleared": True}
 
 
 @app.post("/ask")
-def ask(request: AskRequest) -> dict:
-    from datetime import datetime, timezone
-
+def ask(request: AskRequest, http: Request) -> dict:
     from ..catalog.models import ExploreActivityEntry
 
-    engine = platform()
+    user = current_user(http)
+    engine = platform_for(user)
     try:
         if request.agent:
             agent_result = engine.agent_ask(request.question)
             last = agent_result.last_query
-            platform().catalog.add_explore_activity(
+            activity.add_explore(
+                user.id,
                 ExploreActivityEntry(
                     question=request.question,
                     mode="agent",
                     sql=agent_result.queries[-1].sql if agent_result.queries else None,
-                    created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                )
+                ),
             )
             return {
                 "mode": "agent",
@@ -323,7 +441,8 @@ def ask(request: AskRequest) -> dict:
     except PlatformError as exc:
         raise _fail(exc) from exc
 
-    platform().catalog.add_explore_activity(
+    activity.add_explore(
+        user.id,
         ExploreActivityEntry(
             question=request.question,
             mode="spec",
@@ -332,8 +451,7 @@ def ask(request: AskRequest) -> dict:
             published=bool(result.published),
             dashboard_url=result.published.dashboard_url if result.published else None,
             chart_url=result.published.chart_url if result.published else None,
-            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        )
+        ),
     )
 
     return {
@@ -351,27 +469,26 @@ def ask(request: AskRequest) -> dict:
 
 
 @app.get("/ask-activity")
-def get_ask_activity() -> list[dict]:
-    return [e.model_dump() for e in platform().catalog.list_ask_activity()]
+def get_ask_activity(http: Request) -> list[dict]:
+    return [e.model_dump() for e in activity.list_ask(current_user(http).id)]
 
 
 @app.delete("/ask-activity")
-def clear_ask_activity() -> dict:
-    platform().catalog.clear_ask_activity()
+def clear_ask_activity(http: Request) -> dict:
+    activity.clear(current_user(http).id, "ask_activity")
     return {"cleared": True}
 
 
 @app.post("/ask-nlp")
-def ask_nlp(request: AskNlpRequest) -> dict:
+def ask_nlp(request: AskNlpRequest, http: Request) -> dict:
     """Answer a natural language question about data with a descriptive response.
 
     Uses the LLM to generate a natural language answer based on the specified datasets.
     """
-    from datetime import datetime, timezone
-
     from ..catalog.models import AskActivityEntry
 
-    engine = platform()
+    user = current_user(http)
+    engine = platform_for(user)
     try:
         answer = engine.ask_nlp(
             request.question,
@@ -380,12 +497,12 @@ def ask_nlp(request: AskNlpRequest) -> dict:
     except PlatformError as exc:
         raise _fail(exc) from exc
 
-    platform().catalog.add_ask_activity(
+    activity.add_ask(
+        user.id,
         AskActivityEntry(
             question=request.question,
             dataset=request.datasets[0] if request.datasets else None,
-            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        )
+        ),
     )
 
     return {
@@ -395,56 +512,56 @@ def ask_nlp(request: AskNlpRequest) -> dict:
 
 
 @app.post("/spec")
-def run_spec(spec: QuerySpec) -> dict:
+def run_spec(spec: QuerySpec, http: Request) -> dict:
     try:
-        result = platform().run_spec(spec)
+        result = platform_for(current_user(http)).run_spec(spec)
     except PlatformError as exc:
         raise _fail(exc) from exc
     return {"sql": result.sql, "columns": list(result.data.columns), "rows": _records(result.data)}
 
 
 @app.post("/sql")
-def run_sql(request: SQLRequest) -> dict:
+def run_sql(request: SQLRequest, http: Request) -> dict:
     try:
-        frame = platform().run_sql(request.sql)
+        frame = platform_for(current_user(http)).run_sql(request.sql)
     except PlatformError as exc:
         raise _fail(exc) from exc
     return {"row_count": len(frame), "columns": list(frame.columns), "rows": _records(frame)}
 
 
 @app.get("/dashboard-history")
-def get_dashboard_history() -> list[dict]:
-    return [e.model_dump() for e in platform().catalog.list_dashboard_history()]
+def get_dashboard_history(http: Request) -> list[dict]:
+    return [e.model_dump() for e in activity.list_history(current_user(http).id)]
 
 
 @app.get("/dashboard-activity")
-def get_dashboard_activity() -> list[dict]:
-    return [e.model_dump() for e in platform().catalog.list_dashboard_activity()]
+def get_dashboard_activity(http: Request) -> list[dict]:
+    return [e.model_dump() for e in activity.list_dashboard(current_user(http).id)]
 
 
 @app.delete("/dashboard-activity")
-def clear_dashboard_activity() -> dict:
-    platform().catalog.clear_dashboard_activity()
+def clear_dashboard_activity(http: Request) -> dict:
+    activity.clear(current_user(http).id, "dashboard_activity")
     return {"cleared": True}
 
 
 @app.post("/dashboard")
-def dashboard(request: DashboardRequest) -> dict:
+def dashboard(request: DashboardRequest, http: Request) -> dict:
     """Compose several tiles into one Superset dashboard.
 
     Distinct from /ask, which is one question -> one chart. Set publish=false to
     preview the plan and each tile's SQL without touching Superset.
     """
-    from datetime import datetime, timezone
-
     from ..catalog.models import DashboardActivityEntry, DashboardHistoryEntry
     from ..superset.layout import pack_rows
+
+    user = current_user(http)
 
     if not request.datasets:
         raise _fail(PlatformError("select at least one dataset"))
 
     try:
-        spec, compiled, published, problems = platform().build_dashboard(
+        spec, compiled, published, problems = platform_for(user).build_dashboard(
             request.datasets,
             request=request.request,
             title=request.title,
@@ -454,19 +571,20 @@ def dashboard(request: DashboardRequest) -> dict:
         raise _fail(exc) from exc
 
     if published:
-        platform().catalog.add_dashboard_history(
+        activity.add_history(
+            user.id,
             DashboardHistoryEntry(
                 title=spec.title,
                 dashboard_url=published.dashboard_url,
                 chart_url=None,
                 datasets=request.datasets,
                 n_charts=len(published.chart_ids),
-                created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            )
+            ),
         )
 
     if not request.live:
-        platform().catalog.add_dashboard_activity(
+        activity.add_dashboard(
+            user.id,
             DashboardActivityEntry(
                 action="publish" if published else "preview",
                 title=spec.title,
@@ -474,8 +592,7 @@ def dashboard(request: DashboardRequest) -> dict:
                 datasets=request.datasets,
                 dashboard_url=published.dashboard_url if published else None,
                 n_charts=len(published.chart_ids) if published else 0,
-                created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            )
+            ),
         )
 
     tiles = [tile for tile, _ in compiled]
@@ -502,9 +619,9 @@ def dashboard(request: DashboardRequest) -> dict:
 
 
 @app.post("/analyze")
-def analyze(request: AnalyzeRequest) -> dict:
+def analyze(request: AnalyzeRequest, http: Request) -> dict:
     try:
-        report = platform().analyze(
+        report = platform_for(current_user(http)).analyze(
             request.dataset,
             target=request.target,
             sample=request.sample,
@@ -516,9 +633,11 @@ def analyze(request: AnalyzeRequest) -> dict:
 
 
 @app.post("/baseline")
-def baseline(request: BaselineRequest) -> dict:
+def baseline(request: BaselineRequest, http: Request) -> dict:
     try:
-        result = platform().baseline(request.dataset, request.target, sample=request.sample)
+        result = platform_for(current_user(http)).baseline(
+            request.dataset, request.target, sample=request.sample
+        )
     except PlatformError as exc:
         raise _fail(exc) from exc
     return result.model_dump()

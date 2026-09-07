@@ -89,9 +89,10 @@ class Platform:
         warehouse_uri: str | None = None,
         catalog_path: Path | None = None,
         use_llm: bool | None = None,
+        warehouse_schema: str | None = None,
     ) -> None:
         self.catalog = Catalog(catalog_path)
-        self.warehouse = open_warehouse(warehouse_uri)
+        self.warehouse = open_warehouse(warehouse_uri, schema=warehouse_schema)
         self.ingestor = Ingestor(self.catalog, self.warehouse)
         self.nl2sql = NL2SQL(self.catalog, dialect=self.warehouse.dialect, use_llm=use_llm)
 

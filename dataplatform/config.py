@@ -48,6 +48,15 @@ class Settings:
     # postgresql+psycopg2://insight:insight@insight_warehouse:5432/insight
     superset_warehouse_uri: str = os.environ.get("DP_SUPERSET_WAREHOUSE_URI", "")
 
+    # --- auth ------------------------------------------------------------
+    # Default False on purpose: the app is normally reached over plain http on
+    # localhost or a LAN IP, and a Secure cookie is silently dropped there, so
+    # hardcoding True would break login with no error anywhere. Set
+    # DP_COOKIE_SECURE=1 when serving over TLS.
+    cookie_secure: bool = os.environ.get("DP_COOKIE_SECURE", "0") not in ("0", "", "false", "False")
+    session_ttl_days: int = int(os.environ.get("DP_SESSION_TTL_DAYS", "30"))
+    min_password_length: int = int(os.environ.get("DP_MIN_PASSWORD_LENGTH", "8"))
+
     def __post_init__(self) -> None:
         self.home = Path(self.home)
         self.home.mkdir(parents=True, exist_ok=True)
@@ -59,6 +68,16 @@ class Settings:
     @property
     def catalog_path(self) -> Path:
         return self.home / "catalog.json"
+
+    @property
+    def db_path(self) -> Path:
+        """SQLite file holding users, sessions and per-user activity logs."""
+        return self.home / "app.db"
+
+    @property
+    def users_dir(self) -> Path:
+        """Root of the per-user workspaces (one subdirectory per user id)."""
+        return self.home / "users"
 
     @property
     def has_llm(self) -> bool:
