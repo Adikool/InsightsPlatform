@@ -98,15 +98,19 @@ class SupersetPublisher:
         database_id = self.ensure_warehouse_database(warehouse, database_name)
 
         title = chart_name or compiled.spec.title or f"Query on {compiled.spec.dataset}"
-        dataset_name = _dataset_name(title)
+        schema = _warehouse_schema(warehouse)
+        dataset_name = _dataset_name(title, schema)
 
         existing = self.client.find_dataset(dataset_name, database_id)
         if existing:
             dataset_id = int(existing["id"])
             notes.append(f"reused existing dataset {dataset_name!r}")
         else:
+            # The schema must go with it: the SQL names tables unqualified, so
+            # without it Superset resolves them against its default schema and
+            # answers "Fatal error" for tables it cannot see.
             dataset_id = self.client.create_dataset(
-                database_id, dataset_name, sql=compiled.sql
+                database_id, dataset_name, sql=compiled.sql, schema=schema
             )
         self.client.refresh_dataset(dataset_id)
 
@@ -260,13 +264,16 @@ def publish_dashboard(
     chart_ids: list[int] = []
     placed: list = []
 
+    schema = _warehouse_schema(warehouse)
     for tile, compiled in compiled_tiles:
-        dataset_name = _dataset_name(f"{spec.title} {tile.title}")
+        dataset_name = _dataset_name(f"{spec.title} {tile.title}", schema)
         existing = client.find_dataset(dataset_name, database_id)
         if existing:
             dataset_id = int(existing["id"])
         else:
-            dataset_id = client.create_dataset(database_id, dataset_name, sql=compiled.sql)
+            dataset_id = client.create_dataset(
+                database_id, dataset_name, sql=compiled.sql, schema=schema
+            )
         client.refresh_dataset(dataset_id)
 
         viz_type = SUPERSET_VIZ.get(compiled.spec.chart, "table")
@@ -301,9 +308,22 @@ def publish_dashboard(
     )
 
 
-def _dataset_name(title: str) -> str:
+def _dataset_name(title: str, schema: str | None = None) -> str:
+    """Superset-side name for a virtual dataset.
+
+    The schema is part of the name because Superset datasets are looked up by
+    name within a database: without it, two users who publish a dashboard with
+    the same title would resolve to the *same* dataset, and the second would be
+    shown the first one's data.
+    """
     slug = re.sub(r"[^0-9A-Za-z]+", "_", title).strip("_").lower() or "query"
-    return f"vq_{slug}"[:60]
+    prefix = f"vq_{schema}_" if schema else "vq_"
+    return f"{prefix}{slug}"[:60]
+
+
+def _warehouse_schema(warehouse) -> str | None:
+    """The schema this user's tables live in, if the backend has one."""
+    return getattr(warehouse, "schema", None)
 
 
 def check_connection(client: SupersetClient | None = None) -> dict:

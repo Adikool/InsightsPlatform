@@ -330,3 +330,36 @@ def test_nl2sql_falls_back_on_a_platform_error(tmp_path, monkeypatch):
 
     compiled = nl2sql.translate("total revenue")
     assert "revenue" in compiled.sql.lower()  # heuristic path answered instead of raising
+
+
+# ------------------------------------------------- per-user schema publishing
+def test_dataset_names_do_not_collide_between_users():
+    """Two users publishing the same title must not share a Superset dataset.
+
+    Datasets are looked up by name within a database, so without the schema in
+    the name the second user would reuse the first user's dataset - and be
+    shown their data.
+    """
+    from dataplatform.superset.publisher import _dataset_name
+
+    assert _dataset_name("Sales Overview", None) == "vq_sales_overview"
+    assert _dataset_name("Sales Overview", "u2") == "vq_u2_sales_overview"
+    assert _dataset_name("Sales Overview", "u2") != _dataset_name("Sales Overview", "u3")
+
+
+def test_publish_sends_the_warehouse_schema_to_superset():
+    """A virtual dataset's SQL names tables unqualified.
+
+    Without the schema, Superset resolves them against its default schema and
+    fails with a bare "Fatal error" for tables it cannot see.
+    """
+    from dataplatform.superset.publisher import _warehouse_schema
+
+    class FakeWarehouse:
+        schema = "u7"
+
+    class SchemaLess:
+        pass
+
+    assert _warehouse_schema(FakeWarehouse()) == "u7"
+    assert _warehouse_schema(SchemaLess()) is None
