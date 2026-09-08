@@ -9,6 +9,7 @@ the model prompt and into a regex, per column, per table, per question.
 
 from __future__ import annotations
 
+import pathlib
 import time
 
 from dataplatform.catalog import Catalog
@@ -96,3 +97,26 @@ def test_gating_still_matches_real_sample_values(tmp_path):
     assert any(f.column == "region" and "West" in f.values for f in spec.filters), (
         "a sample value named in the question should still become a filter"
     )
+
+
+# --------------------------------------------------- activity replay is read-only
+def test_activity_click_never_publishes():
+    """Loading a history entry must not write to Superset.
+
+    Clicking an entry restores what was asked for and previews it; publishing
+    stays a separate, deliberate click. Pinned here because the opposite -
+    replaying a logged "publish" - silently created dashboards from a click
+    that reads like navigation.
+    """
+    import re
+
+    app_js = pathlib.Path("dataplatform/api/static/app.js").read_text(encoding="utf-8")
+    start = app_js.index("function renderDashboardActivity")
+    body = app_js[start : app_js.index("\nfunction ", start + 1)]
+
+    calls = re.findall(r"runDashboard\(([^)]*)\)", body)
+    assert calls, "the entry click should still preview"
+    assert all(c.strip() == "false" for c in calls), (
+        f"activity replay must never publish, found runDashboard({calls})"
+    )
+    assert "Open dashboard" in body, "a published entry needs its own explicit open action"

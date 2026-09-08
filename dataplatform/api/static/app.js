@@ -934,8 +934,6 @@ function renderDashboardConflict(detail) {
     <div class="notice warn">
       <div>${escapeHtml(detail.message)}</div>
       <div class="row" style="margin-top:10px">
-        <a class="tiny ghost" id="db-conflict-open" href="${escapeHtml(detail.existing_url)}"
-           target="_blank" rel="noopener" style="text-decoration:none">Open the existing one</a>
         <button class="tiny" id="db-conflict-overwrite">Overwrite it</button>
         <button class="tiny" id="db-conflict-rename">Publish as “${escapeHtml(detail.suggested_title)}”</button>
       </div>
@@ -1001,28 +999,41 @@ function renderDashboardActivity(entries, container) {
     const date = fmtActivityDate(entry.created_at);
     const datasets = (entry.datasets || []).join(", ");
     const isPublish = entry.action === "publish";
-    const titleNode = isPublish && entry.dashboard_url
-      ? `<a href="${escapeHtml(entry.dashboard_url)}" target="_blank" rel="noopener" class="activity-title">${escapeHtml(entry.title)}</a>`
-      : `<span class="activity-title">${escapeHtml(entry.title)}</span>`;
     const row = html(`
-      <div class="activity-item clickable" title="Click to preview this dashboard again">
+      <div class="activity-item clickable" title="Click to load this dashboard's tables, title and request">
         <div class="activity-top">
           <span class="activity-badge ${isPublish ? "publish" : "preview"}">${isPublish ? "Published" : "Preview"}</span>
-          ${titleNode}
+          <span class="activity-title">${escapeHtml(entry.title)}</span>
         </div>
         ${entry.request ? `<div class="activity-request">“${escapeHtml(entry.request)}”</div>` : ""}
         <div class="activity-meta">
           ${datasets ? escapeHtml(datasets) : ""}${datasets && entry.n_charts ? " · " : ""}${entry.n_charts ? `${entry.n_charts} chart${entry.n_charts !== 1 ? "s" : ""}` : ""}
         </div>
         <div class="activity-meta">${escapeHtml(date)}</div>
+        ${entry.dashboard_url
+          ? `<button class="tiny ghost activity-open" style="margin-top:6px">Open dashboard</button>`
+          : ""}
       </div>`);
-    row.addEventListener("click", (event) => {
-      if (event.target.closest("a")) return; // let the published-dashboard link behave normally
+
+    const open = row.querySelector(".activity-open");
+    if (open) {
+      open.addEventListener("click", (event) => {
+        // Opening the published dashboard is its own action, not a side effect
+        // of selecting the entry.
+        event.stopPropagation();
+        window.open(entry.dashboard_url, "_blank", "noopener");
+      });
+    }
+
+    row.addEventListener("click", () => {
+      // Loading an entry only restores what was asked for - the tables, title
+      // and request - and previews it. Publishing stays a separate, deliberate
+      // click, so re-opening history can never write to Superset.
       state.dbDatasets = [...(entry.datasets || [])];
       renderDbDatasetChips();
       $("db-title").value = entry.title;
       $("db-request").value = entry.request || "";
-      runDashboard(entry.action === "publish"); // replay the same action it logged
+      runDashboard(false);
     });
     container.appendChild(row);
   }

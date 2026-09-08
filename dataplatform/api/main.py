@@ -585,7 +585,7 @@ def dashboard(request: DashboardRequest, http: Request) -> dict:
                 "error": "dashboard_exists",
                 "message": (
                     f"A dashboard named {exc.title!r} already exists and has its own "
-                    "layout. Open it, overwrite it, or publish under a different name."
+                    "layout. Overwrite it, or publish under a different name."
                 ),
                 "title": exc.title,
                 "existing_url": exc.existing_url,
