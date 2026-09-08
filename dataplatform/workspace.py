@@ -16,8 +16,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from . import config
 from .auth import User
-from .config import settings
 from .platform import Platform
 
 # Platform holds an open engine/connection pool and an in-memory catalog, so
@@ -41,6 +41,11 @@ def warehouse_uri(user: User) -> str:
     warehouse everyone shares the server and is separated by schema instead,
     so the URI is unchanged and `warehouse_schema` does the work.
     """
+    # Read through the module rather than a `from .config import settings`
+    # binding: settings is a module-level singleton that gets replaced
+    # wholesale (tests do exactly that), and a captured reference would keep
+    # pointing at the old object - silently opening the wrong warehouse.
+    settings = config.settings
     if settings.warehouse_uri.startswith("duckdb://"):
         return f"duckdb:///{(workspace_dir(user) / 'warehouse.duckdb').as_posix()}"
     return settings.warehouse_uri

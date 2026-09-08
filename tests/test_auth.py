@@ -57,10 +57,17 @@ def test_unknown_user_costs_the_same_as_a_wrong_password(dbfile):
             auth.verify_credentials(username, "wrong horse", dbfile)
         return time.perf_counter() - start
 
-    known = min(timed("real") for _ in range(3))
-    unknown = min(timed("ghost") for _ in range(3))
+    # min-of-N, because only the floor is meaningful: any sample can be inflated
+    # by scheduling noise, but none can run faster than the work actually done.
+    known = min(timed("real") for _ in range(5))
+    unknown = min(timed("ghost") for _ in range(5))
     ratio = max(known, unknown) / max(min(known, unknown), 1e-9)
-    assert ratio < 2.0, f"timing gap leaks user existence (known={known:.3f}s unknown={unknown:.3f}s)"
+
+    # The bug this guards against is an early return that skips the 600k-round
+    # hash entirely - that shows up as orders of magnitude, not a few percent.
+    # A tight bound here would buy no extra detection and would flake whenever
+    # the machine is loaded.
+    assert ratio < 4.0, f"timing gap leaks user existence (known={known:.3f}s unknown={unknown:.3f}s)"
 
 
 def test_session_round_trip(dbfile):

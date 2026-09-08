@@ -581,7 +581,14 @@ async function renderDataDetail() {
   for (const column of meta.columns) {
     const facts = [];
     if (column.n_unique != null) facts.push(`${column.n_unique.toLocaleString()} distinct`);
-    if (column.null_fraction) facts.push(`${(column.null_fraction * 100).toFixed(1)}% null`);
+    // State completeness either way. Saying nothing for a column with no nulls
+    // reads as "not measured" rather than "complete", which is exactly the
+    // ambiguity this tab exists to remove.
+    if (column.null_fraction != null) {
+      facts.push(
+        column.null_fraction > 0 ? `${(column.null_fraction * 100).toFixed(1)}% null` : "complete"
+      );
+    }
     if (column.min != null) facts.push(`${formatCell(column.min)} … ${formatCell(column.max)}`);
     if (column.sample_values?.length) facts.push(column.sample_values.slice(0, 5).join(", "));
 

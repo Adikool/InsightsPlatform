@@ -40,7 +40,7 @@
 
     <button class="nav-item" data-view="home"><span class="glyph">⌂</span><span class="nav-label"> Home</span></button>
     <button class="nav-item" data-view="sources"><span class="glyph">⇥</span><span class="nav-label"> Configure</span></button>
-    <button class="nav-item" data-view="data"><span class="glyph">▤</span><span class="nav-label"> Data</span></button>
+    <button class="nav-item" data-view="data"><span class="glyph">▤</span><span class="nav-label"> Data Quality</span></button>
     <button class="nav-item" data-view="ask-nlp"><span class="glyph">💬</span><span class="nav-label"> Ask</span></button>
     <button class="nav-item" data-view="ask"><span class="glyph">?</span><span class="nav-label"> Explore</span></button>
     <button class="nav-item" data-view="dashboard"><span class="glyph">▦</span><span class="nav-label"> Dashboard</span></button>
@@ -154,9 +154,10 @@
     <!-- ------------------------------------------------------------ DATA -->
     <section class="view" id="view-data" hidden>
       <div class="view-head">
-        <h2>Data</h2>
-        <p>What has been ingested, and how the language layer sees it — semantic types
-           and sample values are what let a question resolve to the right column.</p>
+        <h2>Data Quality</h2>
+        <p>How sound each ingested table is: how complete every column is, how many
+           distinct values it holds, and the range it spans — alongside the semantic
+           types and sample values that let a question resolve to the right column.</p>
       </div>
       <div class="row" style="margin-bottom:14px">
         <div style="flex:1 1 260px;max-width:360px">
@@ -300,10 +301,10 @@
             <button class="fc" onclick="switchViewPublic('data')">
               <div class="fc-top">
                 <div class="fc-icon">▤</div>
-                <span class="fc-title">Data</span>
+                <span class="fc-title">Data Quality</span>
               </div>
-              <p class="fc-desc">Browse ingested datasets — row counts, column types, semantic labels, and sample values the language layer uses.</p>
-              <span class="fc-link">Data →</span>
+              <p class="fc-desc">Check each ingested table before you trust it — nulls, distinct counts and value ranges per column, with semantic types and a live sample.</p>
+              <span class="fc-link">Data Quality →</span>
             </button>
           </div>
 

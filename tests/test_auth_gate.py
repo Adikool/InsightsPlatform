@@ -23,7 +23,14 @@ def app_module(tmp_path, monkeypatch):
     monkeypatch.setenv("DP_HOME", str(tmp_path))
     import dataplatform.config as config_module
 
-    config_module.settings = config_module.Settings(home=tmp_path)
+    # Pin the warehouse to a throwaway DuckDB file. Left blank, Settings falls
+    # back to DP_WAREHOUSE_URI from the developer's .env - so these tests would
+    # open real connections to whatever database that points at, creating
+    # schemas in it, and hanging for minutes when it is unreachable.
+    config_module.settings = config_module.Settings(
+        home=tmp_path,
+        warehouse_uri=f"duckdb:///{(tmp_path / 'wh.duckdb').as_posix()}",
+    )
 
     from dataplatform.api import main as api_main
     from dataplatform.store import db as store_db
@@ -33,7 +40,14 @@ def app_module(tmp_path, monkeypatch):
     monkeypatch.setattr(api_main.auth.settings, "home", tmp_path, raising=False)
     store_db.init()
     api_main._platform = None
+
+    from dataplatform import workspace
+
+    # Keyed by user id, which every test restarts from 1 - without this a test
+    # inherits the previous one's Platform, pointed at a deleted tmp_path.
+    workspace.reset_cache()
     yield api_main
+    workspace.reset_cache()
 
 
 def _sample_paths(app):

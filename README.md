@@ -33,7 +33,7 @@ created takes ownership of any data already ingested (see
 | Tab | What it does |
 |---|---|
 | **Configure** | Register database connections |
-| **Data** | Browse tables and column statistics |
+| **Data Quality** | Per-column completeness, distinct counts and value ranges, plus a live sample |
 | **Ask** | Plain-English question → descriptive NLP answer |
 | **Explore** | Plain-English question → SQL + result table |
 | **Dashboard** | Describe a report → preview the tiles, then publish to Superset |
