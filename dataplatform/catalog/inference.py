@@ -24,6 +24,13 @@ _TIME_NAME = re.compile(r"(date|time|timestamp|_at$|_on$|month|year|quarter|week
 _GEO_NAME = re.compile(r"(country|region|state|city|province|zip|postal|lat|lon|lng|geo)", re.I)
 
 _MAX_SAMPLES = 10
+# Longest a single sample value may be. Samples exist to show the shape of a
+# column's values; beyond a short prefix they stop informing and start costing.
+_MAX_SAMPLE_CHARS = 60
+
+
+def _clip(value: str) -> str:
+    return value if len(value) <= _MAX_SAMPLE_CHARS else value[:_MAX_SAMPLE_CHARS] + "..."
 
 
 def _looks_temporal(series: pd.Series) -> bool:
@@ -116,7 +123,12 @@ def profile_column(name: str, series: pd.Series) -> ColumnMeta:
     top_share: float | None = None
     if semantic in ("categorical", "boolean", "geo", "text", "identifier") and not non_null.empty:
         counts = non_null.value_counts()
-        samples = [str(v) for v in counts.head(_MAX_SAMPLES).index]
+        # Truncate each value, not just the count. A text column can hold an
+        # XML document or an encoded image, and one such "sample" ran to 150k
+        # characters - which bloats the catalog file and, worse, is resent to
+        # the model as schema context on every question. A short prefix serves
+        # the actual purpose: showing the shape of the values.
+        samples = [_clip(str(v)) for v in counts.head(_MAX_SAMPLES).index]
         top_share = float(counts.iloc[0] / len(non_null))
 
     return ColumnMeta(

@@ -111,7 +111,14 @@ def pick_dataset(question: str, catalog: Catalog) -> DatasetMeta:
                     explained |= hits
             for value in col.sample_values[:8]:
                 text = str(value).strip().lower()
-                if len(text) >= 3 and re.search(rf"\b{re.escape(text)}\b", lowered):
+                # `text` can only match if `text` is a substring, so the cheap
+                # containment test is a pure gate on the expensive one. It matters:
+                # a text column's sample can be a whole XML document, and escaping
+                # and compiling that as a pattern for every column of every table
+                # was the single slowest thing in the parser.
+                if len(text) < 3 or len(text) > len(lowered) or text not in lowered:
+                    continue
+                if re.search(rf"\b{re.escape(text)}\b", lowered):
                     explained |= {t for t in _tokens(text) if t in content}
                     phrases += 1
                     break
@@ -142,7 +149,10 @@ def _variants(phrase: str) -> set[str]:
 
 def _mentions(question: str, phrase: str) -> bool:
     return any(
-        re.search(rf"\b{re.escape(form)}\b", question) for form in _variants(phrase) if form
+        # Same gate as in score(): skip the regex for forms not even present.
+        form in question and re.search(rf"\b{re.escape(form)}\b", question)
+        for form in _variants(phrase)
+        if form
     )
 
 
@@ -274,6 +284,9 @@ def parse(question: str, catalog: Catalog, default_limit: int = 1000) -> QuerySp
             # Short, empty or numeric sample values match incidental words and digits
             # in the question ("top 5" became delivery_days = 5). Require a real word.
             if len(text) < 3 or text.replace(".", "").isdigit():
+                continue
+            # Substring gate before the regex, for the same reason as score().
+            if len(text) > len(lowered) or text not in lowered:
                 continue
             if re.search(rf"\b{re.escape(text)}\b", lowered):
                 filters.append(Filter(column=col.name, op="=", values=[str(value)]))

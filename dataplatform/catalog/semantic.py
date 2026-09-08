@@ -12,6 +12,11 @@ from .models import DatasetMeta
 from .store import Catalog
 
 _MAX_SAMPLES = 8
+_MAX_SAMPLE_CHARS = 60
+
+
+def _clip(value: str) -> str:
+    return value if len(value) <= _MAX_SAMPLE_CHARS else value[:_MAX_SAMPLE_CHARS] + "..."
 
 
 def _column_line(col) -> str:
@@ -26,7 +31,10 @@ def _column_line(col) -> str:
     if col.semantic_type in ("numeric", "currency", "temporal") and col.min is not None:
         facts.append(f"range {col.min}..{col.max}")
     if col.sample_values and col.semantic_type in ("categorical", "boolean", "geo", "text"):
-        shown = ", ".join(str(v) for v in col.sample_values[:_MAX_SAMPLES])
+        # Clip here as well as at capture: a catalog written before values were
+        # truncated still holds huge ones, and this context is resent to the
+        # model on every question.
+        shown = ", ".join(_clip(str(v)) for v in col.sample_values[:_MAX_SAMPLES])
         facts.append(f"values: {shown}")
     if col.synonyms:
         facts.append("aka " + ", ".join(col.synonyms))

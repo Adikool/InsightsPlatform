@@ -54,6 +54,32 @@ def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
     return harden(model.model_json_schema())
 
 
+# Set once an authentication failure proves the key unusable, so the rest of
+# the process stops attempting network calls that cannot succeed.
+_auth_failure: str | None = None
+
+
+def _latch_auth_failure(message: str) -> None:
+    global _auth_failure
+    _auth_failure = message
+
+
+def disabled_reason() -> str | None:
+    """Why the model layer is being skipped, if it is.
+
+    Callers use this to avoid building an expensive prompt for a call that is
+    known to fail - the schema context alone runs to tens of thousands of
+    tokens.
+    """
+    return _auth_failure
+
+
+def reset_auth_failure() -> None:
+    """Clear the latch. For tests, and for a key changed at runtime."""
+    global _auth_failure
+    _auth_failure = None
+
+
 class LLMClient:
     """Thin wrapper. Absent credentials it raises LLMUnavailable so callers can
     fall back to the deterministic parser rather than dying."""
@@ -92,6 +118,10 @@ class LLMClient:
         """
         import anthropic
 
+        if _auth_failure:
+            # Nothing about this call will differ from the last one.
+            raise PlatformError(_auth_failure)
+
         try:
             return self.client.messages.create(
                 model=self.model,
@@ -99,6 +129,17 @@ class LLMClient:
                 thinking={"type": "adaptive"},
                 **kwargs,
             )
+        except anthropic.AuthenticationError as exc:
+            # Must precede APIError - it is a subclass. Latched because a
+            # rejected key is not transient: it will reject every subsequent
+            # call identically, and each attempt still uploads the whole schema
+            # context before being turned away. Rate limits and 5xx are
+            # deliberately NOT latched; those do resolve on their own.
+            _latch_auth_failure(
+                f"the model call failed: {exc}. Skipping further model calls in this "
+                "process; fix ANTHROPIC_API_KEY and restart the server to re-enable."
+            )
+            raise PlatformError(_auth_failure) from exc
         except anthropic.APIError as exc:
             raise PlatformError(f"the model call failed: {exc}") from exc
 

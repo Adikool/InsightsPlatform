@@ -13,6 +13,7 @@ from ..config import settings
 from ..errors import PlatformError, QueryValidationError
 from . import heuristic
 from .compiler import SQLCompiler
+from . import llm as llm_module
 from .llm import LLMClient, available
 from .spec import CompiledQuery, QuerySpec
 
@@ -51,7 +52,10 @@ class NL2SQL:
 
     # ------------------------------------------------------------------ main
     def translate(self, question: str, datasets: list[str] | None = None) -> CompiledQuery:
-        if not self.use_llm:
+        # `disabled_reason` short-circuits before describe_catalog runs: with a
+        # rejected key there is no point rendering the whole schema for a call
+        # that will be refused.
+        if not self.use_llm or llm_module.disabled_reason():
             return self._compile_or_raise(
                 heuristic.parse(question, self.catalog, settings.default_limit)
             )
