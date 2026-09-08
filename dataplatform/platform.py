@@ -56,8 +56,8 @@ def _multi_chart_hint(question: str) -> list[str]:
         return []
     return [
         "This looks like a request for several charts. `ask` returns one chart "
-        "per question — use the Dashboard view (or `insight dashboard`) to "
-        "compose KPI cards, graphs and a detail table into one Superset dashboard."
+        "per question — use the Create Dashboard view (or `insight dashboard`) "
+        "to compose KPI cards, graphs and a detail table into one Superset dashboard."
     ]
 
 
@@ -179,7 +179,7 @@ class Platform:
                     "chart. Below is the one chart this question resolved to — or "
                     "build the full dashboard from the same question."
                 ),
-                "action": "Build this as a dashboard",
+                "action": "Create this as a dashboard",
             }
         if publish:
             result.published = self.publish(compiled, dashboard=dashboard, chart_name=chart_name)

@@ -42,9 +42,9 @@
     <button class="nav-item" data-view="sources"><span class="glyph">⇥</span><span class="nav-label"> Configure</span></button>
     <button class="nav-item" data-view="data"><span class="glyph">▤</span><span class="nav-label"> Data Quality</span></button>
     <button class="nav-item" data-view="ask-nlp"><span class="glyph">💬</span><span class="nav-label"> Ask</span></button>
-    <button class="nav-item" data-view="ask"><span class="glyph">?</span><span class="nav-label"> Explore</span></button>
-    <button class="nav-item" data-view="dashboard"><span class="glyph">▦</span><span class="nav-label"> Dashboard</span></button>
-    <button class="nav-item" data-view="analyze"><span class="glyph">◈</span><span class="nav-label"> Analyze</span></button>
+    <button class="nav-item" data-view="ask"><span class="glyph">?</span><span class="nav-label"> Quick Insight</span></button>
+    <button class="nav-item" data-view="dashboard"><span class="glyph">▦</span><span class="nav-label"> Create Dashboard</span></button>
+    <button class="nav-item" data-view="analyze"><span class="glyph">◈</span><span class="nav-label"> ML Readiness</span></button>
     <button class="nav-item" data-view="sql"><span class="glyph">&gt;_</span><span class="nav-label"> SQL</span></button>
 
     <div class="sidebar-foot">
@@ -107,9 +107,9 @@
     <!-- --------------------------------------------------------- EXPLORE -->
     <section class="view" id="view-ask">
       <div class="view-head">
-        <h2>Explore</h2>
-        <p>A question becomes a validated QuerySpec, then SQL this platform compiles itself.
-           The model never writes the SQL that runs.</p>
+        <h2>Quick Insight</h2>
+        <p>One question, answered here: a chart and its rows, plus the validated spec and
+           the SQL this platform compiled itself. The model never writes the SQL that runs.</p>
       </div>
 
       <div class="view-layout">
@@ -125,7 +125,7 @@
                   <label for="ask-dataset">Restrict to</label>
                   <select id="ask-dataset"><option value="">any dataset</option></select>
                 </div>
-                <button class="primary" id="ask-run">Explore</button>
+                <button class="primary" id="ask-run">Get insight</button>
               </div>
             </div>
             <div class="row" style="margin-top:10px">
@@ -323,11 +323,11 @@
             <button class="fc fc-explore" onclick="switchViewPublic('ask')">
               <div class="fc-top">
                 <div class="fc-icon">?</div>
-                <span class="fc-title">Explore</span>
+                <span class="fc-title">Quick Insight</span>
               </div>
-              <p class="fc-desc">Natural language → validated query spec → SQL compiled by the platform. Results can be published to Superset.</p>
-              <span class="fc-badge">→ publishes to Dashboard</span>
-              <span class="fc-link">Explore →</span>
+              <p class="fc-desc">One question in plain English → a chart and its rows, right here, with the compiled SQL shown. Publishable to Superset.</p>
+              <span class="fc-badge">→ publishes to Superset</span>
+              <span class="fc-link">Quick Insight →</span>
             </button>
           </div>
 
@@ -335,10 +335,10 @@
             <button class="fc" onclick="switchViewPublic('dashboard')">
               <div class="fc-top">
                 <div class="fc-icon">▦</div>
-                <span class="fc-title">Dashboard</span>
+                <span class="fc-title">Create Dashboard</span>
               </div>
               <p class="fc-desc">Pick tables, describe what to show, and publish a full Superset dashboard — KPI cards, charts, and detail table.</p>
-              <span class="fc-link">Dashboard →</span>
+              <span class="fc-link">Create Dashboard →</span>
             </button>
           </div>
 
@@ -346,10 +346,10 @@
             <button class="fc" onclick="switchViewPublic('analyze')">
               <div class="fc-top">
                 <div class="fc-icon">◈</div>
-                <span class="fc-title">Analyze</span>
+                <span class="fc-title">ML Readiness</span>
               </div>
-              <p class="fc-desc">Statistical profiling, pattern detection, and ML algorithm recommendations based on actual data distributions.</p>
-              <span class="fc-link">Analyze →</span>
+              <p class="fc-desc">Can this table support a prediction? Profiling and pattern detection, then ranked ML algorithms with the reasoning behind each.</p>
+              <span class="fc-link">ML Readiness →</span>
             </button>
           </div>
 
@@ -411,7 +411,7 @@
     <!-- ------------------------------------------------------- DASHBOARD -->
     <section class="view" id="view-dashboard" hidden>
       <div class="view-head">
-        <h2>Dashboard</h2>
+        <h2>Create Dashboard</h2>
         <p>Several questions at once, laid out as one report: KPI cards along the top,
            graphs beneath, detail table at the bottom — published to Superset as a single dashboard.</p>
       </div>
@@ -462,9 +462,11 @@
     <!-- --------------------------------------------------------- ANALYZE -->
     <section class="view" id="view-analyze" hidden>
       <div class="view-head">
-        <h2>Analyze</h2>
-        <p>Profile the data, detect patterns statistically, then recommend prediction
-           algorithms <em>from that evidence</em>. Every recommendation shows its reasoning.</p>
+        <h2>ML Readiness</h2>
+        <p>Whether this table can support a prediction, and with what: profiling and
+           statistical pattern detection first, then ranked algorithms <em>from that
+           evidence</em> — each with its reasoning. Fit baseline trains the top pick and
+           checks it beats a trivial one.</p>
       </div>
 
       <div class="card">
@@ -477,7 +479,7 @@
             <label for="an-target">Target to predict</label>
             <select id="an-target"><option value="">none — unsupervised</option></select>
           </div>
-          <button class="primary" id="an-run">Analyze</button>
+          <button class="primary" id="an-run">Check readiness</button>
           <button id="an-baseline" title="Fit the top recommendation and cross-validate it">Fit baseline</button>
         </div>
       </div>

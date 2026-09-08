@@ -35,26 +35,26 @@ created takes ownership of any data already ingested (see
 | **Configure** | Register database connections |
 | **Data Quality** | Per-column completeness, distinct counts and value ranges, plus a live sample |
 | **Ask** | Plain-English question → descriptive NLP answer |
-| **Explore** | Plain-English question → SQL + result table |
-| **Dashboard** | Describe a report → preview the tiles, then publish to Superset |
-| **Analyze** | Profile data and get ML algorithm recommendations |
+| **Quick Insight** | One plain-English question → a chart and its rows, with the compiled SQL |
+| **Create Dashboard** | Describe a report → preview the tiles, then publish to Superset |
+| **ML Readiness** | Can this table support a prediction? Ranked algorithms with reasoning |
 | **SQL** | Run read-only SQL directly |
 
 ### Working history
 
-Ask, Explore and Dashboard each keep an **Activity** panel on the right,
+Ask, Quick Insight and Create Dashboard each keep an **Activity** panel on the right,
 recording everything you run there. It survives restarts and sign-outs, and is
 private to your account.
 
 * **Click any entry to run it again.** It restores exactly how you ran it the
-  first time — Explore brings back agent mode and the *Publish to Superset*
-  setting, Dashboard restores the tables, title and request.
+  first time — Quick Insight brings back agent mode and the *Publish to Superset*
+  setting, Create Dashboard restores the tables, title and request.
 * **Repeats update in place.** Asking the same thing again refreshes the
   existing entry and moves it to the top rather than filling the list with
   duplicates.
 * **Clear** empties the panel for that tab.
 
-On the Dashboard tab the plan and its SQL are one view: click a tile in the
+On the Create Dashboard tab the plan and its SQL are one view: click a tile in the
 layout to see the query behind it, editable in place.
 
 ## Configuration
@@ -133,7 +133,7 @@ SQL Server requires the Microsoft ODBC Driver installed on your OS:
 
 ## Superset dashboards (optional)
 
-Superset is only needed for the **Dashboard** tab. Skip this if you don't need it.
+Superset is only needed for the **Create Dashboard** tab. Skip this if you don't need it.
 
 ```bash
 # From the superset/ folder

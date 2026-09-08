@@ -975,7 +975,7 @@ function fmtActivityDate(createdAt) {
 
 // ----------------------------------------------------------- EXPLORE ACTIVITY
 async function clearExploreActivity() {
-  if (!confirm("Clear all Explore activity? This cannot be undone.")) return;
+  if (!confirm("Clear all Quick Insight activity? This cannot be undone.")) return;
   try {
     await api("/explore-activity", { method: "DELETE" });
     await loadExploreActivity();
