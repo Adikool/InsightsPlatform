@@ -605,3 +605,51 @@ def test_replace_overwrites_the_existing_dashboard(monkeypatch):
     assert stub.created == [], "must reuse, not create a numbered copy"
     assert result.dashboard_id == 1
     assert not any("already exists" in n for n in result.notes)
+
+
+# ------------------------------------------------- pre-aggregated average notes
+def _avg_params(spec_chart, viz_type, dims):
+    """Run _params for an avg metric and return (publish notes, chart caveats)."""
+    from dataplatform.nlp.spec import CompiledQuery, Dimension, Metric, QuerySpec
+    from dataplatform.superset.publisher import SupersetPublisher
+
+    query = QuerySpec(
+        dataset="d", title="Avg", chart=spec_chart,
+        metrics=[Metric(func="avg", column="x")],
+        dimensions=[Dimension(column=d) for d in dims],
+    )
+    compiled = CompiledQuery(
+        spec=query, sql='SELECT 1 AS "avg_x"', columns=["avg_x"],
+        metric_aliases=["avg_x"], dimension_aliases=list(dims),
+    )
+    notes, caveats = [], []
+    # `client=object()` keeps this off the network: _params never touches it.
+    SupersetPublisher(client=object())._params(compiled, 1, viz_type, notes, caveats)
+    return notes, caveats
+
+
+def test_exact_average_does_not_raise_a_publish_note():
+    """A chart grouped by the same dimensions re-aggregates one row per group.
+
+    That is a no-op, so warning about it on every publish is noise.
+    """
+    notes, caveats = _avg_params("bar", "bar", ["region"])
+    assert notes == []
+    assert caveats, "the caveat still travels with the chart, for later edits"
+
+
+def test_kpi_card_with_no_dimensions_does_not_warn():
+    notes, _ = _avg_params("big_number", "big_number_total", [])
+    assert notes == []
+
+
+def test_chart_that_collapses_groups_does_warn():
+    """A pie shows only the first dimension, so the rest really are averaged away."""
+    notes, _ = _avg_params("pie", "pie", ["region", "channel"])
+    assert any("across groups" in n for n in notes)
+
+
+def test_big_number_over_a_grouped_query_warns():
+    """big_number ignores dimensions entirely, so every group is collapsed."""
+    notes, _ = _avg_params("big_number", "big_number_total", ["region"])
+    assert any("across groups" in n for n in notes)

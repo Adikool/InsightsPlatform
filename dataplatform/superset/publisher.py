@@ -7,9 +7,13 @@ definition to drift.
 That does mean the dataset arrives pre-aggregated, so the chart re-aggregates with
 `SUM` over the same grouping. Summing an already-grouped column by the same keys is
 a no-op, and it keeps Superset's own controls (filters, drilldown) working normally.
-The one case where that is wrong is an average: averaging pre-averaged groups of
-unequal size is not the overall average, so `avg`/`median` metrics are re-aggregated
-with `AVG` and flagged in the chart description.
+The one case where that could be wrong is an average: averaging pre-averaged
+groups of unequal size is not the overall average. Charts group by every
+dimension the query grouped by, so each group holds a single row and the
+re-aggregation is a no-op - the published chart is exact. The caveat is
+recorded in the chart description because it becomes real if someone later
+removes a grouping in Superset, and it is raised as a publish note only for
+the chart types that genuinely do collapse groups.
 """
 
 from __future__ import annotations
@@ -115,14 +119,15 @@ class SupersetPublisher:
         self.client.refresh_dataset(dataset_id)
 
         viz_type = SUPERSET_VIZ.get(compiled.spec.chart, "table")
-        params = self._params(compiled, dataset_id, viz_type, notes)
+        caveats: list[str] = []
+        params = self._params(compiled, dataset_id, viz_type, notes, caveats)
 
         chart_id = self.client.create_chart(
             name=title,
             viz_type=viz_type,
             dataset_id=dataset_id,
             params=params,
-            description=compiled.spec.explanation,
+            description=" ".join(filter(None, [compiled.spec.explanation, *caveats])),
         )
 
         result = PublishResult(
@@ -140,8 +145,31 @@ class SupersetPublisher:
         return result
 
     # ----------------------------------------------------------------- params
+    @staticmethod
+    def _collapses_groups(viz_type: str, dims: list[str]) -> bool:
+        """Does this chart aggregate across the grouping the query already applied?
+
+        Only then can re-aggregating a pre-computed average actually skew the
+        number. Most charts group by every dimension in `dims`, so each group
+        holds exactly one row and the aggregate returns it unchanged.
+        """
+        if not dims:
+            return False  # one row in, one row out
+        if viz_type == "big_number_total":
+            return True  # ignores dimensions entirely
+        if viz_type == "pie":
+            return len(dims) > 1  # only the first dimension is used
+        if viz_type == "heatmap_v2":
+            return len(dims) > 2  # x_axis + one groupby
+        return False
+
     def _params(
-        self, compiled: CompiledQuery, dataset_id: int, viz_type: str, notes: list[str]
+        self,
+        compiled: CompiledQuery,
+        dataset_id: int,
+        viz_type: str,
+        notes: list[str],
+        caveats: list[str] | None = None,
     ) -> dict:
         spec = compiled.spec
         dims = list(compiled.dimension_aliases)
@@ -152,10 +180,22 @@ class SupersetPublisher:
         for metric, alias in zip(spec.metrics, metric_aliases):
             if metric.func in ("avg", "median"):
                 aggregates[alias] = "AVG"
-                notes.append(
-                    f"{alias!r} is a pre-computed {metric.func}; Superset re-aggregates it "
-                    "with AVG, which is only exact when the underlying groups are equal-sized"
+                caveat = (
+                    f"{alias!r} is already aggregated per group with {metric.func.upper()}. "
+                    "Superset re-aggregates "
+                    "it with AVG, which is exact as published; it would skew only if a "
+                    "grouping were removed here so unequal groups were averaged together."
                 )
+                # The description travels with the chart, which is where this
+                # matters later. The publish note is reserved for the charts
+                # that collapse groups now, so it stops being noise on every
+                # publish that is in fact exact.
+                (caveats if caveats is not None else notes).append(caveat)
+                if caveats is not None and self._collapses_groups(viz_type, dims):
+                    notes.append(
+                        f"{alias!r} is a pre-computed {metric.func} and this chart aggregates "
+                        "across groups, so the value shown is an unweighted average of averages"
+                    )
             elif metric.func == "min":
                 aggregates[alias] = "MIN"
             elif metric.func == "max":
@@ -278,13 +318,14 @@ def publish_dashboard(
         client.refresh_dataset(dataset_id)
 
         viz_type = SUPERSET_VIZ.get(compiled.spec.chart, "table")
-        params = publisher._params(compiled, dataset_id, viz_type, notes)
+        caveats: list[str] = []
+        params = publisher._params(compiled, dataset_id, viz_type, notes, caveats)
         chart_id = client.create_chart(
             name=tile.title,
             viz_type=viz_type,
             dataset_id=dataset_id,
             params=params,
-            description=compiled.spec.explanation,
+            description=" ".join(filter(None, [compiled.spec.explanation, *caveats])),
         )
         client.attach_chart(chart_id, dashboard_id)
         chart_ids.append(chart_id)
