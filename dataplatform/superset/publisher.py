@@ -258,7 +258,8 @@ def publish_dashboard(
             title = client.unique_dashboard_title(title)
             notes.append(
                 f"a dashboard named {spec.title!r} already exists with its own layout; "
-                f"published to {title!r} instead (pass replace=True to overwrite)"
+                f"published to {title!r} instead. Tick ‘Replace existing’ to "
+                f"overwrite it next time."
             )
     dashboard_id = client.ensure_dashboard(title)
     chart_ids: list[int] = []

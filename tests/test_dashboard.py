@@ -7,6 +7,8 @@ looks like a successful publish.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from dataplatform.catalog import Catalog
@@ -493,3 +495,113 @@ def test_heuristic_explanation_reads_back_the_query(catalog):
     assert "region" in spec.explanation
     # The old wording led with the absence of a model, which read as an error.
     assert "without a language model" not in spec.explanation
+
+
+# ------------------------------------------------------- replacing a dashboard
+class _StubClient:
+    """Enough of SupersetClient to exercise the publish decision, no network."""
+
+    def __init__(self, existing_titles=()):
+        self.titles = {t: i + 1 for i, t in enumerate(existing_titles)}
+        self.created = []
+        self.put_calls = []
+
+    # -- lookups the replace decision depends on
+    def find_dashboard(self, title):
+        return {"id": self.titles[title]} if title in self.titles else None
+
+    def dashboard_is_occupied(self, dashboard_id):
+        return True  # the case that matters: someone already laid it out
+
+    def unique_dashboard_title(self, title, limit=50):
+        if title not in self.titles:
+            return title
+        for n in range(2, limit):
+            if f"{title} ({n})" not in self.titles:
+                return f"{title} ({n})"
+        raise AssertionError("no free title")
+
+    def ensure_dashboard(self, title):
+        if title not in self.titles:
+            self.titles[title] = len(self.titles) + 1
+            self.created.append(title)
+        return self.titles[title]
+
+    # -- the rest, stubbed to no-ops
+    def find_dataset(self, name, database_id=None):
+        return {"id": 1}
+
+    def create_dataset(self, *a, **k):
+        return 1
+
+    def refresh_dataset(self, dataset_id):
+        pass
+
+    def create_chart(self, **k):
+        return 99
+
+    def attach_chart(self, chart_id, dashboard_id):
+        pass
+
+    def dashboard_url(self, dashboard_id):
+        return f"http://superset/dashboard/{dashboard_id}/"
+
+    def chart_url(self, chart_id):
+        return f"http://superset/chart/{chart_id}/"
+
+    def put(self, path, payload):
+        self.put_calls.append((path, payload))
+        return {}
+
+
+def _publish_with(stub, title, monkeypatch):
+    """Run publish_dashboard against the stub and return (title used, notes)."""
+    from dataplatform.superset import publisher as publisher_module
+    from dataplatform.superset.publisher import SupersetPublisher, publish_dashboard
+
+    pub = SupersetPublisher(client=stub)
+    monkeypatch.setattr(pub, "ensure_warehouse_database", lambda *a, **k: 1)
+
+    # Real Tile/QuerySpec rather than stand-ins: the layout builder reads fields
+    # (height, width) that a hand-rolled stub silently lacks.
+    from dataplatform.nlp.spec import Metric, QuerySpec
+
+    query = QuerySpec(
+        dataset="orders", title="Total", chart="big_number",
+        metrics=[Metric(func="sum", column="revenue")],
+    )
+    tile = Tile(spec=query, role="kpi", width=3)
+    spec = SimpleNamespace(title=title, tiles=[tile])
+    compiled = SimpleNamespace(sql="SELECT 1", spec=query)
+    monkeypatch.setattr(publisher_module.SupersetPublisher, "_params", lambda *a, **k: {})
+
+    class _Warehouse:
+        schema = None
+
+    result = publish_dashboard(pub, spec, [(tile, compiled)], _Warehouse(),
+                               replace=stub.replace_flag)
+    return result, stub
+
+
+def test_publishing_over_an_existing_dashboard_renames_by_default(monkeypatch):
+    """Taking over a hand-built layout orphans its charts, so never do it silently."""
+    stub = _StubClient(existing_titles=["Sales"])
+    stub.replace_flag = False
+    result, stub = _publish_with(stub, "Sales", monkeypatch)
+
+    assert "Sales (2)" in stub.created, "should publish beside the existing dashboard"
+    assert any("already exists" in n for n in result.notes)
+    # The note must point at something the user can actually do.
+    assert any("Replace existing" in n for n in result.notes)
+    assert not any("replace=True" in n for n in result.notes), "no Python kwargs in UI copy"
+
+
+def test_replace_overwrites_the_existing_dashboard(monkeypatch):
+    """With replace on, the same dashboard is reused rather than duplicated."""
+    stub = _StubClient(existing_titles=["Sales"])
+    stub.replace_flag = True
+    result, stub = _publish_with(stub, "Sales", monkeypatch)
+
+    assert stub.created == [], "must reuse, not create a numbered copy"
+    assert result.dashboard_id == 1
+    assert not any("already exists" in n for n in result.notes)

@@ -798,7 +798,14 @@ async function runDashboard(publish, { live = false } = {}) {
   try {
     const plan = await api("/dashboard", {
       method: "POST",
-      body: { datasets, request: $("db-request").value, title: $("db-title").value, publish, live },
+      body: {
+        datasets,
+        request: $("db-request").value,
+        title: $("db-title").value,
+        publish,
+        live,
+        replace: $("db-replace").checked,
+      },
     });
     if (ticket !== dashboardRequestId) return; // superseded while in flight
     setStatus("db-status", null);

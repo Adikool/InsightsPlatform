@@ -252,6 +252,10 @@ class DashboardRequest(BaseModel):
     # True for the debounced recompose-as-you-type calls; those aren't logged
     # to the activity feed, only explicit "Preview plan" / "Publish" clicks are.
     live: bool = False
+    # Overwrite a Superset dashboard of the same name instead of publishing
+    # beside it as "... (2)". Off by default: taking over a dashboard someone
+    # laid out by hand orphans every chart on it.
+    replace: bool = False
 
 
 class AnalyzeRequest(BaseModel):
@@ -566,6 +570,7 @@ def dashboard(request: DashboardRequest, http: Request) -> dict:
             request=request.request,
             title=request.title,
             publish=request.publish,
+            replace=request.replace,
         )
     except PlatformError as exc:
         raise _fail(exc) from exc
