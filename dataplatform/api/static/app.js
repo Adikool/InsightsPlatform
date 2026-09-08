@@ -791,6 +791,7 @@ async function runDashboard(publish, { live = false } = {}) {
   }
 
   const ticket = ++dashboardRequestId;
+  if (!live) renderPublishLink(null);
   if (!live) setStatus("db-status", "busy", publish ? "Composing and publishing…" : "Composing…");
   if (publish) $("db-preview").disabled = $("db-publish").disabled = true;
 
@@ -893,20 +894,33 @@ function renderDashboardPlan(plan, { live = false } = {}) {
     container.appendChild(html(`<div class="notice warn">${escapeHtml(problem)}</div>`));
   }
 
-  if (plan.superset) {
-    container.appendChild(
-      card(
-        "Published",
-        html(`
-          <div>
-            <a href="${escapeHtml(plan.superset.dashboard_url)}" target="_blank" rel="noopener">Open dashboard in Superset</a>
-            <div class="rec-meta">${plan.superset.chart_ids.length} charts created</div>
-            ${(plan.superset.notes || []).map((n) => `<div class="rec-meta">${escapeHtml(n)}</div>`).join("")}
-            <div class="rec-meta" style="margin-top:6px">If Superset shows a login page, sign in there first — it keeps its own browser session.</div>
-          </div>`)
-      )
-    );
+  // The publish result belongs next to the button that caused it, not in a
+  // card below a long plan the user has to scroll past to find the link.
+  renderPublishLink(plan.superset);
+
+  // Notes explain a surprising outcome - most often that the title collided
+  // and the dashboard went somewhere else - so they stay visible as notices
+  // rather than being folded into the link.
+  for (const note of plan.superset?.notes || []) {
+    container.appendChild(html(`<div class="notice warn">${escapeHtml(note)}</div>`));
   }
+}
+
+function renderPublishLink(superset) {
+  const target = $("db-published");
+  if (!superset?.dashboard_url) {
+    target.hidden = true;
+    target.innerHTML = "";
+    return;
+  }
+  const charts = superset.chart_ids?.length ?? 0;
+  target.innerHTML = `
+    <a href="${escapeHtml(superset.dashboard_url)}" target="_blank" rel="noopener"
+       title="If Superset shows a login page, sign in there first — it keeps its own browser session.">
+      Open in Superset ↗
+    </a>
+    <span class="rec-meta">${charts} chart${charts !== 1 ? "s" : ""}</span>`;
+  target.hidden = false;
 }
 
 // --------------------------------------------------------- DASHBOARD ACTIVITY
