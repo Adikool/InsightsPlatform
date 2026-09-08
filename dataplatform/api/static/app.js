@@ -790,7 +790,7 @@ function renderDbDatasetChips() {
 // Monotonic guard: a slow early response must not overwrite a newer plan.
 let dashboardRequestId = 0;
 
-async function runDashboard(publish, { live = false } = {}) {
+async function runDashboard(publish, { live = false, record = true } = {}) {
   const datasets = state.dbDatasets;
   if (!datasets.length) {
     if (!live) setStatus("db-status", "warn", "Add at least one table first.");
@@ -811,14 +811,18 @@ async function runDashboard(publish, { live = false } = {}) {
         request: $("db-request").value,
         title: $("db-title").value,
         publish,
-        live,
+        // `live` is the server's "do not record this" flag. Re-opening a history
+        // entry is navigation, not a new action: recording it would write a
+        // fresh "preview" row that dedupe then folds onto the existing entry,
+        // quietly demoting a published dashboard to Preview in the panel.
+        live: live || !record,
         replace: $("db-replace").checked,
       },
     });
     if (ticket !== dashboardRequestId) return; // superseded while in flight
     setStatus("db-status", null);
     renderDashboardPlan(plan, { live });
-    if (!live) loadDashboardActivity();
+    if (!live && record) loadDashboardActivity();
   } catch (error) {
     if (ticket !== dashboardRequestId) return;
     if (error.status === 409 && error.detail?.error === "dashboard_exists") {
@@ -934,12 +938,16 @@ function renderDashboardConflict(detail) {
     <div class="notice warn">
       <div>${escapeHtml(detail.message)}</div>
       <div class="row" style="margin-top:10px">
+        <button class="tiny" id="db-conflict-open">Open dashboard</button>
         <button class="tiny" id="db-conflict-overwrite">Overwrite it</button>
         <button class="tiny" id="db-conflict-rename">Publish as “${escapeHtml(detail.suggested_title)}”</button>
       </div>
     </div>`);
   box.appendChild(panel);
 
+  panel.querySelector("#db-conflict-open").addEventListener("click", () => {
+    window.open(detail.existing_url, "_blank", "noopener");
+  });
   panel.querySelector("#db-conflict-overwrite").addEventListener("click", () => {
     // Tick the box as well as acting on it, so the state stays visible.
     $("db-replace").checked = true;
@@ -1025,7 +1033,7 @@ function renderDashboardActivity(entries, container) {
       });
     }
 
-    row.addEventListener("click", () => {
+    row.addEventListener("click", async () => {
       // Loading an entry only restores what was asked for - the tables, title
       // and request - and previews it. Publishing stays a separate, deliberate
       // click, so re-opening history can never write to Superset.
@@ -1033,7 +1041,15 @@ function renderDashboardActivity(entries, container) {
       renderDbDatasetChips();
       $("db-title").value = entry.title;
       $("db-request").value = entry.request || "";
-      runDashboard(false);
+      await runDashboard(false, { record: false });
+      // Reopen it as it stands: a published entry keeps its link, rather than
+      // looking like something that was never published.
+      if (entry.dashboard_url) {
+        renderPublishLink({
+          dashboard_url: entry.dashboard_url,
+          chart_ids: new Array(entry.n_charts || 0),
+        });
+      }
     });
     container.appendChild(row);
   }

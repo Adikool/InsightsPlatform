@@ -189,3 +189,32 @@ def test_import_on_corrupt_catalog_is_a_noop(tmp_path, dbfile):
     bad.write_text("{not json", encoding="utf-8")
     # Must not raise: a malformed legacy file cannot be allowed to break startup.
     assert activity.import_pre_auth(bad, dbfile) == 0
+
+
+def test_reopening_a_published_entry_does_not_demote_it(dbfile):
+    """Re-opening history must not rewrite it.
+
+    Dedupe folds a new row onto the existing one for the same
+    (title, request, datasets). If loading an entry recorded a fresh "preview",
+    it would overwrite the "publish" that is already there and the panel would
+    show Preview for a dashboard that is live in Superset.
+    """
+    published = DashboardActivityEntry(
+        action="publish", title="Sales", request="3 kpi", datasets=["orders"],
+        dashboard_url="http://superset/dashboard/7/", n_charts=6,
+    )
+    activity.add_dashboard(1, published, dbfile)
+
+    # What a recorded re-open would have written:
+    demoting = DashboardActivityEntry(
+        action="preview", title="Sales", request="3 kpi", datasets=["orders"],
+    )
+    activity.add_dashboard(1, demoting, dbfile)
+
+    rows = activity.list_dashboard(1, dbfile)
+    assert len(rows) == 1, "same key, so it folds onto the existing row"
+    assert rows[0].action == "preview", (
+        "this is why re-opening must not be recorded at all - the store cannot "
+        "tell a genuine new preview from a replayed one"
+    )
+    assert rows[0].dashboard_url is None, "and the link to the live dashboard is lost"

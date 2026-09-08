@@ -114,9 +114,14 @@ def test_activity_click_never_publishes():
     start = app_js.index("function renderDashboardActivity")
     body = app_js[start : app_js.index("\nfunction ", start + 1)]
 
-    calls = re.findall(r"runDashboard\(([^)]*)\)", body)
+    # First argument of runDashboard is `publish`.
+    calls = re.findall(r"runDashboard\(\s*([A-Za-z]+)", body)
     assert calls, "the entry click should still preview"
-    assert all(c.strip() == "false" for c in calls), (
+    assert all(c == "false" for c in calls), (
         f"activity replay must never publish, found runDashboard({calls})"
+    )
+    assert "record: false" in body, (
+        "re-opening an entry must not be recorded, or dedupe demotes a published "
+        "entry to Preview"
     )
     assert "Open dashboard" in body, "a published entry needs its own explicit open action"
