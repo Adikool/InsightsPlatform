@@ -579,21 +579,27 @@ def _publish_with(stub, title, monkeypatch):
         schema = None
 
     result = publish_dashboard(pub, spec, [(tile, compiled)], _Warehouse(),
-                               replace=stub.replace_flag)
+                               replace=stub.replace_flag,
+                               on_conflict=getattr(stub, "on_conflict", "rename"))
     return result, stub
 
 
 def test_publishing_over_an_existing_dashboard_renames_by_default(monkeypatch):
-    """Taking over a hand-built layout orphans its charts, so never do it silently."""
+    """Taking over a hand-built layout orphans its charts, so never do it silently.
+
+    This is the non-interactive path (the CLI): with nobody to ask, publishing
+    beside the existing dashboard is better than overwriting it.
+    """
     stub = _StubClient(existing_titles=["Sales"])
     stub.replace_flag = False
     result, stub = _publish_with(stub, "Sales", monkeypatch)
 
     assert "Sales (2)" in stub.created, "should publish beside the existing dashboard"
     assert any("already exists" in n for n in result.notes)
-    # The note must point at something the user can actually do.
-    assert any("Replace existing" in n for n in result.notes)
-    assert not any("replace=True" in n for n in result.notes), "no Python kwargs in UI copy"
+    # No instructions the reader cannot follow: this path has no checkbox to
+    # tick, and `replace=True` is a Python keyword, not something a user does.
+    assert not any("replace=True" in n for n in result.notes)
+    assert not any("Replace existing" in n for n in result.notes)
 
 
 def test_replace_overwrites_the_existing_dashboard(monkeypatch):
@@ -653,3 +659,74 @@ def test_big_number_over_a_grouped_query_warns():
     """big_number ignores dimensions entirely, so every group is collapsed."""
     notes, _ = _avg_params("big_number", "big_number_total", ["region"])
     assert any("across groups" in n for n in notes)
+
+
+def test_conflict_asks_instead_of_creating_a_numbered_copy(monkeypatch):
+    """An interface that can prompt should not be handed a fait accompli.
+
+    Silently publishing "Sales (8)" leaves a duplicate for someone to find
+    later; raising lets the caller offer open / overwrite / rename.
+    """
+    from dataplatform.errors import DashboardExists
+
+    stub = _StubClient(existing_titles=["Sales"])
+    stub.replace_flag = False
+    stub.on_conflict = "ask"
+
+    with pytest.raises(DashboardExists) as exc:
+        _publish_with(stub, "Sales", monkeypatch)
+
+    assert exc.value.title == "Sales"
+    assert exc.value.suggested_title == "Sales (2)", "offer a free name to publish under"
+    assert exc.value.existing_url, "the caller needs a link to what already exists"
+    assert stub.created == [], "nothing may be published while the question is open"
+
+
+def test_rename_remains_the_default_for_non_interactive_callers(monkeypatch):
+    """The CLI cannot prompt, so it keeps the old behaviour."""
+    stub = _StubClient(existing_titles=["Sales"])
+    stub.replace_flag = False  # on_conflict defaults to "rename"
+    result, stub = _publish_with(stub, "Sales", monkeypatch)
+    assert "Sales (2)" in stub.created
+    assert any("already exists" in n for n in result.notes)
+
+
+def test_api_maps_the_conflict_to_a_structured_409(tmp_path, monkeypatch):
+    """Drive the real route: the browser needs the link and a free title."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from dataplatform.errors import DashboardExists
+    import dataplatform.config as config_module
+
+    monkeypatch.setenv("DP_HOME", str(tmp_path))
+    config_module.settings = config_module.Settings(
+        home=tmp_path, warehouse_uri=f"duckdb:///{(tmp_path / 'w.duckdb').as_posix()}"
+    )
+    from dataplatform.api import main as api_main
+    from dataplatform.store import db as store_db
+
+    monkeypatch.setattr(api_main, "settings", config_module.settings)
+    monkeypatch.setattr(store_db.settings, "home", tmp_path, raising=False)
+    monkeypatch.setattr(api_main.auth.settings, "home", tmp_path, raising=False)
+    store_db.init()
+
+    class _Platform:
+        def build_dashboard(self, *a, **k):
+            assert k.get("on_conflict") == "ask", "the browser must be asked, not renamed for"
+            raise DashboardExists("Sales", "http://superset/dashboard/7/", "Sales (2)")
+
+    api_main._platform = _Platform()
+    try:
+        client = TestClient(api_main.app)
+        client.post("/auth/signup", json={"username": "a", "password": "test-password"})
+        response = client.post("/dashboard", json={"datasets": ["orders"], "title": "Sales"})
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == "dashboard_exists"
+        assert detail["existing_url"] == "http://superset/dashboard/7/"
+        assert detail["suggested_title"] == "Sales (2)"
+        assert "already exists" in detail["message"]
+    finally:
+        api_main._platform = None

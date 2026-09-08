@@ -27,8 +27,16 @@ async function api(path, options = {}) {
     payload = null;
   }
   if (!response.ok) {
-    // FastAPI puts the message in `detail`; surface that rather than a status code.
-    const error = new Error(payload?.detail || `${response.status} ${response.statusText}`);
+    // FastAPI puts the message in `detail`, which is sometimes an object -
+    // stringifying that yields "[object Object]", so carry it through intact
+    // for callers that can act on it.
+    const detail = payload?.detail;
+    const message =
+      typeof detail === "string"
+        ? detail
+        : detail?.message || `${response.status} ${response.statusText}`;
+    const error = new Error(message);
+    if (detail && typeof detail === "object") error.detail = detail;
     error.status = response.status;
     // A session can expire mid-visit, and every panel would otherwise render
     // its own "not signed in" string. Handle it once, here.
@@ -813,7 +821,11 @@ async function runDashboard(publish, { live = false } = {}) {
     if (!live) loadDashboardActivity();
   } catch (error) {
     if (ticket !== dashboardRequestId) return;
-    setStatus("db-status", "error", error.message);
+    if (error.status === 409 && error.detail?.error === "dashboard_exists") {
+      renderDashboardConflict(error.detail);
+    } else {
+      setStatus("db-status", "error", error.message);
+    }
   } finally {
     $("db-preview").disabled = $("db-publish").disabled = false;
   }
@@ -911,6 +923,34 @@ function renderDashboardPlan(plan, { live = false } = {}) {
   for (const note of plan.superset?.notes || []) {
     container.appendChild(html(`<div class="notice warn">${escapeHtml(note)}</div>`));
   }
+}
+
+function renderDashboardConflict(detail) {
+  /* Nothing was published. Offer the three things a person might have meant,
+     rather than picking one for them and leaving a numbered copy behind. */
+  const box = $("db-status");
+  box.innerHTML = "";
+  const panel = html(`
+    <div class="notice warn">
+      <div>${escapeHtml(detail.message)}</div>
+      <div class="row" style="margin-top:10px">
+        <a class="tiny ghost" id="db-conflict-open" href="${escapeHtml(detail.existing_url)}"
+           target="_blank" rel="noopener" style="text-decoration:none">Open the existing one</a>
+        <button class="tiny" id="db-conflict-overwrite">Overwrite it</button>
+        <button class="tiny" id="db-conflict-rename">Publish as “${escapeHtml(detail.suggested_title)}”</button>
+      </div>
+    </div>`);
+  box.appendChild(panel);
+
+  panel.querySelector("#db-conflict-overwrite").addEventListener("click", () => {
+    // Tick the box as well as acting on it, so the state stays visible.
+    $("db-replace").checked = true;
+    runDashboard(true);
+  });
+  panel.querySelector("#db-conflict-rename").addEventListener("click", () => {
+    $("db-title").value = detail.suggested_title;
+    runDashboard(true);
+  });
 }
 
 function renderPublishLink(superset) {

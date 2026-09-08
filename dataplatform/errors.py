@@ -33,3 +33,18 @@ class LLMUnavailable(PlatformError):
 
 class SupersetError(PlatformError):
     """Superset returned an error or is unreachable."""
+
+
+class DashboardExists(SupersetError):
+    """A dashboard of this title already has a layout of its own.
+
+    Raised instead of quietly publishing a numbered copy, so the caller can put
+    the choice to the person: open what is already there, overwrite it, or pick
+    a different title. Carries what an interface needs to offer all three.
+    """
+
+    def __init__(self, title: str, existing_url: str, suggested_title: str) -> None:
+        super().__init__(f"a dashboard named {title!r} already exists")
+        self.title = title
+        self.existing_url = existing_url
+        self.suggested_title = suggested_title

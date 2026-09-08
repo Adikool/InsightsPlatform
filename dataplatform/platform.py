@@ -277,6 +277,7 @@ Question: {question}"""
         publish: bool = True,
         use_llm: bool | None = None,
         replace: bool = False,
+        on_conflict: str = "rename",
     ) -> tuple[DashboardSpec, list, DashboardResult | None, list[str]]:
         spec, compiled, problems = self.compose_dashboard(
             datasets, request=request, title=title, use_llm=use_llm
@@ -289,7 +290,8 @@ Question: {question}"""
         if publish:
             spec.tiles = [tile for tile, _ in compiled]
             result = publish_dashboard(
-                SupersetPublisher(), spec, compiled, self.warehouse, replace=replace
+                SupersetPublisher(), spec, compiled, self.warehouse,
+                replace=replace, on_conflict=on_conflict,
             )
         return spec, compiled, result, problems
 

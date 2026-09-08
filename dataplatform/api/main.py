@@ -27,6 +27,7 @@ from .. import auth, workspace
 from ..config import settings
 from ..errors import (
     CatalogError,
+    DashboardExists,
     ConnectorError,
     LLMUnavailable,
     PlatformError,
@@ -571,7 +572,26 @@ def dashboard(request: DashboardRequest, http: Request) -> dict:
             title=request.title,
             publish=request.publish,
             replace=request.replace,
+            # The browser can ask the person what to do; don't leave a numbered
+            # copy behind on their behalf.
+            on_conflict="ask",
         )
+    except DashboardExists as exc:
+        # A structured 409 rather than a message: the UI needs the existing
+        # dashboard's link and a free title to offer real choices.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "dashboard_exists",
+                "message": (
+                    f"A dashboard named {exc.title!r} already exists and has its own "
+                    "layout. Open it, overwrite it, or publish under a different name."
+                ),
+                "title": exc.title,
+                "existing_url": exc.existing_url,
+                "suggested_title": exc.suggested_title,
+            },
+        ) from exc
     except PlatformError as exc:
         raise _fail(exc) from exc
 

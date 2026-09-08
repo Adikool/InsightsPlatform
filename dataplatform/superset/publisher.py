@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from ..config import settings
-from ..errors import SupersetError
+from ..errors import DashboardExists, SupersetError
 from ..nlp.chart import SUPERSET_VIZ
 from ..nlp.spec import CompiledQuery
 from .client import SupersetClient
@@ -275,6 +275,7 @@ def publish_dashboard(
     warehouse,
     database_name: str = "insight_warehouse",
     replace: bool = False,
+    on_conflict: str = "rename",
 ) -> DashboardResult:
     """Create one chart per tile, then lay them out on a single dashboard.
 
@@ -295,11 +296,20 @@ def publish_dashboard(
     existing = client.find_dashboard(title)
     if existing and not replace:
         if client.dashboard_is_occupied(int(existing["id"])):
+            if on_conflict == "ask":
+                # Don't decide for the caller. An interface that can prompt
+                # should offer to open the existing dashboard, overwrite it, or
+                # rename - all better than silently leaving a numbered copy
+                # behind for someone to find later.
+                raise DashboardExists(
+                    title=title,
+                    existing_url=client.dashboard_url(int(existing["id"])),
+                    suggested_title=client.unique_dashboard_title(title),
+                )
             title = client.unique_dashboard_title(title)
             notes.append(
                 f"a dashboard named {spec.title!r} already exists with its own layout; "
-                f"published to {title!r} instead. Tick ‘Replace existing’ to "
-                f"overwrite it next time."
+                f"published to {title!r} instead."
             )
     dashboard_id = client.ensure_dashboard(title)
     chart_ids: list[int] = []
