@@ -375,9 +375,12 @@
     <section class="view" id="view-sources" hidden>
       <div class="view-head">
         <h2>Configure</h2>
-        <p>SQL databases via SQLAlchemy, or Excel / CSV / Parquet from disk. Ingestion
-           copies into the warehouse and registers the schema in the catalog.</p>
+        <p>Where your data comes from, and which model key answers questions about it.</p>
       </div>
+
+      <h3 class="section-head">Data connections</h3>
+      <p class="section-sub">SQL databases via SQLAlchemy, or Excel / CSV / Parquet from disk.
+         Ingestion copies into the warehouse and registers the schema in the catalog.</p>
 
       <div class="card">
         <h3>Register a source</h3>
@@ -406,6 +409,33 @@
 
       <div id="sources-status"></div>
       <div id="sources-list"></div>
+
+      <h3 class="section-head" style="margin-top:28px">AI key</h3>
+      <p class="section-sub">The plain-English tabs call Anthropic's API. Bring your own key
+         and it is used for your workspace only — nobody else's questions are billed to it.
+         Without one, the platform falls back to its built-in parser, which handles
+         straightforward questions but not nuanced ones.</p>
+
+      <div class="card">
+        <div id="ai-key-state" class="ai-key-state">Checking…</div>
+        <form id="ai-key-form" autocomplete="off">
+          <div class="row" style="margin-top:12px">
+            <div class="grow">
+              <label for="ai-key-input">Anthropic API key</label>
+              <input id="ai-key-input" type="password" autocomplete="off"
+                     spellcheck="false" placeholder="paste your key">
+            </div>
+            <button class="primary" id="ai-key-save" type="submit">Save key</button>
+            <button class="tiny ghost" id="ai-key-remove" type="button" hidden>Remove</button>
+          </div>
+        </form>
+        <div id="ai-key-status"></div>
+        <p class="section-sub" style="margin:10px 0 0">
+          Stored on this server in <code>app.db</code> and never shown again after saving —
+          only the last four characters are displayed. Get a key from
+          <code>console.anthropic.com</code>.
+        </p>
+      </div>
     </section>
 
     <!-- ------------------------------------------------------- DASHBOARD -->

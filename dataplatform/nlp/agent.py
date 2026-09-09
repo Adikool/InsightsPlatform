@@ -50,11 +50,19 @@ class AgentResult:
 
 
 class AnalystAgent:
-    def __init__(self, catalog: Catalog, warehouse: Warehouse, model: str | None = None) -> None:
+    def __init__(
+        self,
+        catalog: Catalog,
+        warehouse: Warehouse,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
         self.catalog = catalog
         self.warehouse = warehouse
         self.compiler = SQLCompiler(catalog, dialect=warehouse.dialect)
         self.model = model or settings.model
+        # The workspace owner's own key, when they have supplied one.
+        self.api_key = api_key
         self._client = None  # lazy-init once at first ask()
 
     # ------------------------------------------------------------- tool impls
@@ -101,7 +109,11 @@ class AnalystAgent:
                 import anthropic
             except ImportError as exc:  # pragma: no cover
                 raise LLMUnavailable("the `anthropic` package is not installed") from exc
-            self._client = anthropic.Anthropic()
+            self._client = (
+                anthropic.Anthropic(api_key=self.api_key)
+                if self.api_key
+                else anthropic.Anthropic()
+            )
         return self._client
 
     # ------------------------------------------------------------------- run

@@ -100,6 +100,10 @@ CREATE TABLE IF NOT EXISTS users (
     workspace_dir TEXT NOT NULL,
     -- per-user schema for SQL warehouses; NULL for DuckDB or the legacy default
     warehouse_schema TEXT,
+    -- The user's own Anthropic key ("bring your own key"). NULL means fall
+    -- back to the server's environment, so a single-user install keeps working
+    -- exactly as before.
+    anthropic_api_key TEXT,
     created_at    TEXT NOT NULL
 );
 
@@ -168,6 +172,12 @@ CREATE TABLE IF NOT EXISTS dashboard_history (
 """
 
 
+# (column, DDL) pairs applied to `users` if the column is missing. CREATE TABLE
+# IF NOT EXISTS does nothing to a table that already exists, so a database
+# created before a column was added needs this.
+_USER_COLUMNS = (("anthropic_api_key", "ALTER TABLE users ADD COLUMN anthropic_api_key TEXT"),)
+
+
 def init(path: Path | None = None) -> None:
     """Create the schema if absent. Safe to call on every startup."""
     with connect(path) as conn:
@@ -175,6 +185,11 @@ def init(path: Path | None = None) -> None:
         # take effect once, but setting it again is harmless.
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(_SCHEMA)
+
+        have = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        for column, ddl in _USER_COLUMNS:
+            if column not in have:
+                conn.execute(ddl)
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:

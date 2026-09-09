@@ -13,6 +13,8 @@ Two things live here that are easy to get wrong elsewhere:
 
 from __future__ import annotations
 
+import hashlib
+
 import json
 from typing import Any, TypeVar
 
@@ -54,39 +56,56 @@ def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
     return harden(model.model_json_schema())
 
 
-# Set once an authentication failure proves the key unusable, so the rest of
-# the process stops attempting network calls that cannot succeed.
-_auth_failure: str | None = None
+# Keyed by which credential failed, not global: users bring their own keys, so
+# one person's rejected key must not disable the model layer for everybody.
+# The key itself is never stored here - only a digest of it.
+_auth_failures: dict[str, str] = {}
 
 
-def _latch_auth_failure(message: str) -> None:
-    global _auth_failure
-    _auth_failure = message
+def _key_id(api_key: str | None) -> str:
+    """A stable handle for a credential that is not the credential."""
+    if not api_key:
+        return "env"
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
 
 
-def disabled_reason() -> str | None:
-    """Why the model layer is being skipped, if it is.
+def _latch_auth_failure(api_key: str | None, message: str) -> None:
+    _auth_failures[_key_id(api_key)] = message
+
+
+def disabled_reason(api_key: str | None = None) -> str | None:
+    """Why the model layer is being skipped for this credential, if it is.
 
     Callers use this to avoid building an expensive prompt for a call that is
     known to fail - the schema context alone runs to tens of thousands of
     tokens.
     """
-    return _auth_failure
+    return _auth_failures.get(_key_id(api_key))
 
 
-def reset_auth_failure() -> None:
-    """Clear the latch. For tests, and for a key changed at runtime."""
-    global _auth_failure
-    _auth_failure = None
+def reset_auth_failure(api_key: str | None = None) -> None:
+    """Clear the latch. For tests, and when a key is replaced at runtime."""
+    if api_key is None and "env" not in _auth_failures:
+        _auth_failures.clear()
+    else:
+        _auth_failures.pop(_key_id(api_key), None)
 
 
 class LLMClient:
     """Thin wrapper. Absent credentials it raises LLMUnavailable so callers can
     fall back to the deterministic parser rather than dying."""
 
-    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        effort: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
         self.model = model or settings.model
         self.effort = effort or settings.effort
+        # A user-supplied key wins over the server's environment, so each
+        # person can bring their own.
+        self.api_key = api_key
         self._client = None
 
     @property
@@ -96,9 +115,13 @@ class LLMClient:
                 import anthropic
             except ImportError as exc:  # pragma: no cover
                 raise LLMUnavailable("the `anthropic` package is not installed") from exc
+            if self.api_key:
+                self._client = anthropic.Anthropic(api_key=self.api_key)
+                return self._client
             if not settings.has_llm:
                 raise LLMUnavailable(
-                    "no ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN in the environment"
+                    "no API key configured - add one in Configure, or set "
+                    "ANTHROPIC_API_KEY in the environment"
                 )
             self._client = anthropic.Anthropic()
         return self._client
@@ -118,9 +141,10 @@ class LLMClient:
         """
         import anthropic
 
-        if _auth_failure:
+        latched = disabled_reason(self.api_key)
+        if latched:
             # Nothing about this call will differ from the last one.
-            raise PlatformError(_auth_failure)
+            raise PlatformError(latched)
 
         try:
             return self.client.messages.create(
@@ -135,11 +159,12 @@ class LLMClient:
             # call identically, and each attempt still uploads the whole schema
             # context before being turned away. Rate limits and 5xx are
             # deliberately NOT latched; those do resolve on their own.
-            _latch_auth_failure(
-                f"the model call failed: {exc}. Skipping further model calls in this "
-                "process; fix ANTHROPIC_API_KEY and restart the server to re-enable."
+            message = (
+                f"the model call failed: {exc}. Skipping further calls with this key; "
+                "replace it in Configure to try again."
             )
-            raise PlatformError(_auth_failure) from exc
+            _latch_auth_failure(self.api_key, message)
+            raise PlatformError(message) from exc
         except anthropic.APIError as exc:
             raise PlatformError(f"the model call failed: {exc}") from exc
 
@@ -208,8 +233,8 @@ class LLMClient:
         return "\n".join(b.text for b in response.content if b.type == "text").strip()
 
 
-def available() -> bool:
-    if not settings.has_llm:
+def available(api_key: str | None = None) -> bool:
+    if not api_key and not settings.has_llm:
         return False
     try:
         import anthropic  # noqa: F401

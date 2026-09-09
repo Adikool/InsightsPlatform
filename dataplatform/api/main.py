@@ -35,6 +35,7 @@ from ..errors import (
     SupersetError,
 )
 from ..nlp import QuerySpec
+from ..nlp import llm
 from ..platform import Platform
 from ..store import activity, db
 
@@ -308,18 +309,62 @@ def _ui_build() -> str:
 
 
 @app.get("/config")
-def config() -> dict:
+def config(http: Request) -> dict:
     """Everything the UI needs to describe its own environment to the user."""
+    user = current_user(http)
     return {
         "ui_build": _ui_build(),
         "warehouse": settings.warehouse_uri,
         "catalog": str(settings.catalog_path),
-        "llm_available": settings.has_llm,
+        # Per user now: their own key counts, and so does the server's, since a
+        # user without a key falls back to the environment.
+        "llm_available": bool(user.api_key) or settings.has_llm,
+        "own_key": bool(user.api_key),
         "model": settings.model,
         "effort": settings.effort,
         "superset_url": settings.superset_url,
         "max_rows": settings.max_rows,
     }
+
+
+class ApiKeyRequest(BaseModel):
+    api_key: str
+
+
+@app.get("/settings/ai-key")
+def get_ai_key(http: Request) -> dict:
+    """What is configured - never the key itself, only a stub of it."""
+    user = current_user(http)
+    return {
+        "configured": bool(user.api_key),
+        "preview": auth.mask_api_key(user.api_key),
+        # True when the server has one in its environment, which is what a user
+        # without their own key would fall back to.
+        "server_key_available": settings.has_llm,
+        "model": settings.model,
+    }
+
+
+@app.put("/settings/ai-key")
+def set_ai_key(body: ApiKeyRequest, http: Request) -> dict:
+    user = current_user(http)
+    try:
+        auth.set_api_key(user.id, body.api_key)
+    except auth.AuthError as exc:
+        raise _auth_failed(exc) from exc
+    # The cached Platform built its LLM client around the old key, and a
+    # previously rejected key may be latched; both have to go.
+    workspace.forget(user.id)
+    llm.reset_auth_failure(body.api_key.strip())
+    return {"configured": True, "preview": auth.mask_api_key(body.api_key.strip())}
+
+
+@app.delete("/settings/ai-key")
+def clear_ai_key(http: Request) -> dict:
+    user = current_user(http)
+    auth.set_api_key(user.id, None)
+    workspace.forget(user.id)
+    return {"configured": False, "preview": None}
 
 
 @app.get("/superset/check")

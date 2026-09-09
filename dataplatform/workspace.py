@@ -64,6 +64,7 @@ def platform_for(user: User) -> Platform:
         warehouse_uri=warehouse_uri(user),
         catalog_path=catalog_path(user),
         warehouse_schema=user.warehouse_schema,
+        api_key=user.api_key,
     )
 
     with _lock:
@@ -74,7 +75,12 @@ def platform_for(user: User) -> Platform:
 
 
 def forget(user_id: int) -> None:
-    """Drop a cached Platform, e.g. after the workspace is reconfigured."""
+    """Drop a cached Platform.
+
+    Required after the model key changes: the cached Platform built its NL2SQL
+    (and its LLM client) around the old key, so without this the new one would
+    not take effect until the process restarted.
+    """
     with _lock:
         _platforms.pop(user_id, None)
 

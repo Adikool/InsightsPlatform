@@ -48,6 +48,9 @@ class User:
     username: str
     workspace_dir: str
     warehouse_schema: str | None
+    # The user's own model key, if they have supplied one. None means the
+    # server's environment key is used instead.
+    api_key: str | None = None
 
 
 # ------------------------------------------------------------------ helpers
@@ -112,6 +115,7 @@ def _row_to_user(row: sqlite3.Row) -> User:
         username=row["username"],
         workspace_dir=row["workspace_dir"],
         warehouse_schema=row["warehouse_schema"],
+        api_key=row["anthropic_api_key"] if "anthropic_api_key" in row.keys() else None,
     )
 
 
@@ -166,7 +170,9 @@ def create_user(username: str, password: str, path: Path | None = None) -> User:
             # adopt the pre-auth rows.
             activity.claim_unowned(conn, user_id)
 
-    return User(id=user_id, username=display, workspace_dir=workspace_dir, warehouse_schema=schema)
+    return User(
+        id=user_id, username=display, workspace_dir=workspace_dir, warehouse_schema=schema
+    )
 
 
 def verify_credentials(username: str, password: str, path: Path | None = None) -> User:
@@ -242,3 +248,35 @@ def delete_session(token: str | None, path: Path | None = None) -> None:
         return
     with write_txn(path) as conn:
         conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+# ------------------------------------------------------------------ api keys
+def mask_api_key(key: str | None) -> str | None:
+    """A recognisable stub, never the key itself.
+
+    Enough to tell one key from another when confirming what is stored, and
+    useless to anyone who intercepts it.
+    """
+    if not key:
+        return None
+    tail = key[-4:] if len(key) >= 4 else ""
+    return f"...{tail}"
+
+
+def set_api_key(user_id: int, key: str | None, path: Path | None = None) -> None:
+    """Store (or clear, with None) this user's own model key."""
+    cleaned = (key or "").strip() or None
+    if cleaned is not None and len(cleaned) < 8:
+        raise AuthError("that does not look like an API key")
+    with write_txn(path) as conn:
+        conn.execute(
+            "UPDATE users SET anthropic_api_key = ? WHERE id = ?", (cleaned, user_id)
+        )
+
+
+def get_api_key(user_id: int, path: Path | None = None) -> str | None:
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT anthropic_api_key FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    return row["anthropic_api_key"] if row else None

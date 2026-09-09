@@ -215,22 +215,7 @@ async function boot() {
 
   try {
     state.config = await api("/config");
-    $("env-llm").textContent = state.config.llm_available ? state.config.model : "keyword fallback";
-    $("env-llm").title = state.config.llm_available
-      ? `effort: ${state.config.effort}`
-      : "No ANTHROPIC_API_KEY — the NL layer uses its deterministic parser";
-
-    // Don't offer a control that cannot work. Agent mode needs credentials, and
-    // letting it be ticked without them just trades a useful answer for a 503.
-    if (!state.config.llm_available) {
-      const agent = $("ask-agent");
-      agent.checked = false;
-      agent.disabled = true;
-      const label = agent.closest(".checkline");
-      label.title = "Needs ANTHROPIC_API_KEY. Everything else works without it.";
-      label.style.opacity = "0.55";
-      label.lastChild.textContent = " Agent mode (needs ANTHROPIC_API_KEY)";
-    }
+    applyLlmAvailability();
     $("env-warehouse").textContent = state.config.warehouse.replace(/^duckdb:\/\/\//, "");
     $("env-warehouse").title = state.config.warehouse;
     $("env-build").textContent = state.config.ui_build || "—";
@@ -255,6 +240,7 @@ function switchView(name) {
     button.setAttribute("aria-current", String(button.dataset.view === name));
   });
   location.hash = name;
+  if (name === "sources") loadAiKey();
   if (name === "dashboard") loadDashboardActivity();
   if (name === "ask") loadExploreActivity();
   if (name === "ask-nlp") loadAskActivity();
@@ -622,6 +608,94 @@ async function renderDataDetail() {
 // ----------------------------------------------------------------- SOURCES
 function wireSources() {
   $("src-add").addEventListener("click", addSource);
+  wireAiKey();
+}
+
+// Reflects whether *this user* can reach the model layer. Extracted from boot
+// so adding or removing a key updates the UI without a reload.
+function applyLlmAvailability() {
+  const ok = !!state.config?.llm_available;
+  $("env-llm").textContent = ok ? state.config.model : "keyword fallback";
+  $("env-llm").title = ok
+    ? `effort: ${state.config.effort}`
+    : "No API key — the NL layer uses its deterministic parser";
+
+  // Don't offer a control that cannot work. Agent mode needs credentials, and
+  // letting it be ticked without them just trades a useful answer for a 503.
+  const agent = $("ask-agent");
+  const label = agent.closest(".checkline");
+  agent.disabled = !ok;
+  if (!ok) agent.checked = false;
+  label.style.opacity = ok ? "" : "0.55";
+  label.title = ok ? "" : "Needs an API key. Everything else works without one.";
+  label.lastChild.textContent = ok
+    ? " Agent mode (multi-step)"
+    : " Agent mode (needs an API key)";
+}
+
+// ------------------------------------------------------------------ AI key
+function renderAiKeyState(info) {
+  const state = $("ai-key-state");
+  const remove = $("ai-key-remove");
+  if (info.configured) {
+    state.innerHTML =
+      `<span class="badge ok"><span class="dot"></span>Your key</span>` +
+      `Using your own key (<code>${escapeHtml(info.preview || "")}</code>) with ` +
+      `<code>${escapeHtml(info.model || "")}</code>.`;
+    remove.hidden = false;
+  } else if (info.server_key_available) {
+    state.innerHTML =
+      `<span class="badge info">Server key</span>` +
+      `No key of your own, so this server's key is used. Add one to bill your own account.`;
+    remove.hidden = true;
+  } else {
+    state.innerHTML =
+      `<span class="badge off">No key</span>` +
+      `The plain-English tabs fall back to the built-in parser until a key is added.`;
+    remove.hidden = true;
+  }
+  $("ai-key-input").placeholder = info.configured ? "paste a new key to replace it" : "paste your key";
+}
+
+async function loadAiKey() {
+  try {
+    renderAiKeyState(await api("/settings/ai-key"));
+  } catch (_) {
+    $("ai-key-state").textContent = "Could not read the key setting.";
+  }
+}
+
+function wireAiKey() {
+  $("ai-key-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const value = $("ai-key-input").value.trim();
+    if (!value) return;
+    setStatus("ai-key-status", "busy", "Saving…");
+    try {
+      const saved = await api("/settings/ai-key", { method: "PUT", body: { api_key: value } });
+      // Never leave a secret sitting in the field once it is stored.
+      $("ai-key-input").value = "";
+      setStatus("ai-key-status", "ok", "Key saved. New questions will use it.");
+      renderAiKeyState({ ...saved, model: state.config?.model, server_key_available: true });
+      state.config = await api("/config");
+      applyLlmAvailability();
+    } catch (error) {
+      setStatus("ai-key-status", "error", error.message);
+    }
+  });
+
+  $("ai-key-remove").addEventListener("click", async () => {
+    if (!confirm("Remove your API key from this server?")) return;
+    try {
+      await api("/settings/ai-key", { method: "DELETE" });
+      setStatus("ai-key-status", null);
+      await loadAiKey();
+      state.config = await api("/config");
+      applyLlmAvailability();
+    } catch (error) {
+      setStatus("ai-key-status", "error", error.message);
+    }
+  });
 }
 
 async function addSource() {

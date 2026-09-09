@@ -90,11 +90,16 @@ class Platform:
         catalog_path: Path | None = None,
         use_llm: bool | None = None,
         warehouse_schema: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.catalog = Catalog(catalog_path)
         self.warehouse = open_warehouse(warehouse_uri, schema=warehouse_schema)
         self.ingestor = Ingestor(self.catalog, self.warehouse)
-        self.nl2sql = NL2SQL(self.catalog, dialect=self.warehouse.dialect, use_llm=use_llm)
+        # The model key this workspace uses, if its owner supplied one.
+        self.api_key = api_key
+        self.nl2sql = NL2SQL(
+            self.catalog, dialect=self.warehouse.dialect, use_llm=use_llm, api_key=api_key
+        )
 
     # ---------------------------------------------------------------- sources
     def add_source(
@@ -197,7 +202,7 @@ class Platform:
     def agent_ask(self, question: str):
         from .nlp.agent import AnalystAgent
 
-        return AnalystAgent(self.catalog, self.warehouse).ask(question)
+        return AnalystAgent(self.catalog, self.warehouse, api_key=self.api_key).ask(question)
 
     def ask_nlp(self, question: str, datasets: list[str] | None = None) -> dict:
         """Answer a natural language question with an NLP-generated response.
@@ -229,7 +234,7 @@ class Platform:
         data_context = "\n".join(context_lines)
 
         # Generate answer using LLM
-        llm = LLMClient()
+        llm = LLMClient(api_key=self.api_key)
         instructions = "You are a helpful data analyst. Provide clear, insightful answers about data."
         prompt = f"""Based on the following data context, answer this question in 2-3 sentences:
 

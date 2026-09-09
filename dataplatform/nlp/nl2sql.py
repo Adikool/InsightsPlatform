@@ -44,18 +44,20 @@ class NL2SQL:
         dialect: str = "duckdb",
         llm: LLMClient | None = None,
         use_llm: bool | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.catalog = catalog
         self.compiler = SQLCompiler(catalog, dialect=dialect)
-        self.llm = llm or LLMClient()
-        self.use_llm = available() if use_llm is None else use_llm
+        self.api_key = api_key
+        self.llm = llm or LLMClient(api_key=api_key)
+        self.use_llm = available(api_key) if use_llm is None else use_llm
 
     # ------------------------------------------------------------------ main
     def translate(self, question: str, datasets: list[str] | None = None) -> CompiledQuery:
         # `disabled_reason` short-circuits before describe_catalog runs: with a
         # rejected key there is no point rendering the whole schema for a call
         # that will be refused.
-        if not self.use_llm or llm_module.disabled_reason():
+        if not self.use_llm or llm_module.disabled_reason(self.api_key):
             return self._compile_or_raise(
                 heuristic.parse(question, self.catalog, settings.default_limit)
             )
