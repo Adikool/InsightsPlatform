@@ -240,7 +240,6 @@ function switchView(name) {
     button.setAttribute("aria-current", String(button.dataset.view === name));
   });
   location.hash = name;
-  if (name === "sources") loadAiKey();
   if (name === "dashboard") loadDashboardActivity();
   if (name === "ask") loadExploreActivity();
   if (name === "ask-nlp") loadAskActivity();
@@ -609,6 +608,25 @@ async function renderDataDetail() {
 function wireSources() {
   $("src-add").addEventListener("click", addSource);
   wireAiKey();
+  wireConfigSwitch();
+}
+
+function showConfigPanel(which) {
+  for (const button of document.querySelectorAll(".config-tab")) {
+    button.setAttribute("aria-pressed", String(button.dataset.panel === which));
+  }
+  $("config-panel-sources").hidden = which !== "sources";
+  $("config-panel-ai").hidden = which !== "ai";
+  // Read the key's state when its panel is opened rather than on every visit
+  // to Configure, so the common case costs nothing.
+  if (which === "ai") loadAiKey();
+}
+
+function wireConfigSwitch() {
+  for (const button of document.querySelectorAll(".config-tab")) {
+    button.addEventListener("click", () => showConfigPanel(button.dataset.panel));
+  }
+  showConfigPanel("sources");
 }
 
 // Reflects whether *this user* can reach the model layer. Extracted from boot

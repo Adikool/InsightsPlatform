@@ -504,3 +504,15 @@ code { font-family: var(--mono); font-size: 0.92em; background: var(--surface-2)
 }
 .ai-key-state { font-size: 13px; }
 .ai-key-state .badge { margin-right: 6px; }
+
+/* Configure: pick which thing to set up */
+.config-switch { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.config-tab {
+  padding: 9px 16px; font-weight: 600;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--muted); cursor: pointer;
+}
+.config-tab:hover { border-color: var(--accent); color: var(--accent); }
+.config-tab[aria-pressed="true"] {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
