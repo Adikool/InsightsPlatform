@@ -228,6 +228,9 @@
         .fc-root:hover .fc-title { color:#fff; }
         .fc-root:hover .fc-desc { color:rgba(255,255,255,.8); }
         .fc-root:hover .fc-link { color:rgba(255,255,255,.9); }
+        .fc-root:hover .fc-bullet { color:rgba(255,255,255,.82); }
+        .fc-root:hover .fc-bullet b { color:#fff; }
+        .fc-root:hover .fc-bullet::before { color:rgba(255,255,255,.9); }
 
         /* explore card variant */
         .fc-explore { border-color:var(--accent); }
@@ -241,6 +244,20 @@
         .fc-top { display:flex; align-items:center; gap:11px; }
         .fc-title { font-size:1rem; font-weight:700; color:var(--text); }
         .fc-desc { font-size:.82rem; color:var(--muted); line-height:1.55; margin:0; overflow-wrap:break-word; word-break:break-word; }
+
+        /* Spans rather than <ul>/<li>: the card is a <button>, which may only
+           contain phrasing content. */
+        .fc-bullets { display:flex; flex-direction:column; gap:6px; }
+        .fc-bullet {
+          display:block; position:relative; padding-left:14px;
+          font-size:.82rem; color:var(--muted); line-height:1.5;
+          overflow-wrap:break-word; word-break:break-word;
+        }
+        .fc-bullet::before {
+          content:"›"; position:absolute; left:2px; top:-1px;
+          color:var(--accent); font-weight:700;
+        }
+        .fc-bullet b { color:var(--text); font-weight:600; }
         .fc-link { font-size:.78rem; color:var(--accent); font-weight:600; margin-top:auto; padding-top:6px; }
         .fc-badge {
           display:inline-block; font-size:.65rem; font-weight:600;
@@ -268,7 +285,13 @@
               <div class="fc-icon">⇥</div>
               <span class="fc-title">Configure</span>
             </div>
-            <p class="fc-desc">Start here — two things to set up. Register SQL databases or flat files, each ingested into the warehouse and catalogued automatically; and add your own Anthropic key so the plain-English tabs answer with the model instead of the built-in parser.</p>
+            <p class="fc-desc">Start here — two things to set up:</p>
+            <span class="fc-bullets">
+              <span class="fc-bullet"><b>Register a data source</b> — SQL databases or flat
+                files, ingested into the warehouse and catalogued automatically.</span>
+              <span class="fc-bullet"><b>AI Key</b> — your own Anthropic key, so the
+                plain-English tabs answer with the model rather than the built-in parser.</span>
+            </span>
             <span class="fc-link">Configure →</span>
           </button>
         </div>
